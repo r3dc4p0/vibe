@@ -160,7 +160,7 @@ or a prompt is open the hints describe keys, and there is nothing to press.
 Edit, Navigate, Search, View, Help — with the name of each in the middle of a
 separator. `↑`/`↓` step from command to command and skip the separators, which
 are labels rather than choices; `→`/`←` jump to the first command of the next or
-previous section, so a menu of six sections is six keystrokes from end to end.
+previous section, so a menu of six sections is five keystrokes from end to end.
 `→` on the last section and `←` on the first do nothing — the menu does not
 wrap, so "am I at the end?" stays answerable. The footer counts commands, not
 headings.
