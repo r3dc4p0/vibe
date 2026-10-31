@@ -1,4 +1,5 @@
 /target
+.DS_Store
 
 # Local scratch files, not part of the project.
 /test.txt

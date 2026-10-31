@@ -715,6 +715,14 @@ fn palette_key(app: &mut App, p: &mut Palette, key: &KeyEvent) -> PaletteOutcome
             p.step(1);
             return PaletteOutcome::Open;
         }
+        // Left and Right walk the sections, which is the one thing a grouped
+        // menu is missing without them. Only while the query is empty: with
+        // something typed there are no sections, and the arrows belong to the
+        // text cursor.
+        KeyCode::Left | KeyCode::Right if p.input.value().is_empty() => {
+            p.jump_group(matches!(key.code, KeyCode::Right));
+            return PaletteOutcome::Open;
+        }
         KeyCode::PageUp => {
             for _ in 0..10 {
                 p.step(-1);

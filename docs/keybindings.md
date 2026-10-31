@@ -158,8 +158,15 @@ or a prompt is open the hints describe keys, and there is nothing to press.
 
 `Ctrl+Shift+P` opens the menu of every command, divided into sections — File,
 Edit, Navigate, Search, View, Help — with the name of each in the middle of a
-separator. The arrows step from command to command and skip the separators,
-which are labels rather than choices; the footer counts commands, not headings.
+separator. `↑`/`↓` step from command to command and skip the separators, which
+are labels rather than choices; `→`/`←` jump to the first command of the next or
+previous section, so a menu of six sections is six keystrokes from end to end.
+`→` on the last section and `←` on the first do nothing — the menu does not
+wrap, so "am I at the end?" stays answerable. The footer counts commands, not
+headings.
+
+`←`/`→` jump only while the query is empty: once something is typed the list is
+flat and the arrows go back to being the text cursor's.
 
 Type to search and the sections go away: a search ranks by how well the name
 matches, and a list in match order has no runs to group. Clearing the query

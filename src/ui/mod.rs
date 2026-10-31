@@ -161,6 +161,55 @@ impl Palette {
         }
     }
 
+    /// The first entry of every group, in order.
+    ///
+    /// An entry that comes before any heading belongs to no group, so it is not
+    /// one of these: there is nothing to jump to.
+    pub fn group_starts(&self) -> Vec<usize> {
+        let mut out = Vec::new();
+        let mut after_heading = false;
+        for (index, item) in self.items.iter().enumerate() {
+            match item {
+                PaletteItem::Group(_) => after_heading = true,
+                PaletteItem::Entry { .. } => {
+                    if after_heading {
+                        out.push(index);
+                        after_heading = false;
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// Jump to the first entry of the next or previous group.
+    ///
+    /// Both directions leave the group the selection is in, even when it is
+    /// already at that group's first entry: Left from the middle of Edit goes
+    /// to the top of File, not to the top of Edit. That keeps the two keys
+    /// symmetric — each crosses exactly one heading — and leaves "the start of
+    /// this section" to `Home`, if it is ever wanted.
+    ///
+    /// Stops at the ends rather than wrapping: the last group is the last
+    /// group, and a Right that silently returned to the top of the menu would
+    /// make "am I at the end?" unanswerable.
+    pub fn jump_group(&mut self, forward: bool) {
+        let starts = self.group_starts();
+        let target = if forward {
+            starts.iter().copied().find(|&start| start > self.selected)
+        } else {
+            // The group the selection is in, then the one before it.
+            starts
+                .iter()
+                .rposition(|&start| start <= self.selected)
+                .and_then(|here| here.checked_sub(1))
+                .map(|before| starts[before])
+        };
+        if let Some(target) = target {
+            self.selected = target;
+        }
+    }
+
     /// Rows that can be chosen, and how many there are.
     pub fn entry_position(&self) -> (usize, usize) {
         let total = self.items.iter().filter(|i| !i.is_group()).count();

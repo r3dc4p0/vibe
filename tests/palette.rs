@@ -9,6 +9,7 @@ mod common;
 use common::*;
 use crossterm::event::KeyCode;
 use vibe::app::App;
+use vibe::commands::Command;
 use vibe::ui::{Overlay, PaletteAction, PaletteMode};
 
 /// An editor with the command palette open.
@@ -251,6 +252,101 @@ fn the_footer_counts_commands_not_headings() {
         rows.iter().any(|r| r.contains("64/64")),
         "and the last is still sixty-four, with the headings uncounted"
     );
+}
+
+/// The command the selection is on.
+fn selected_command(app: &App) -> vibe::commands::Command {
+    let Overlay::Palette(p) = &app.ui.overlay else {
+        panic!("the palette is open");
+    };
+    match p.items[p.selected].action() {
+        Some(PaletteAction::Run(cmd)) => *cmd,
+        other => panic!("the selection is not on a command: {other:?}"),
+    }
+}
+
+#[test]
+fn right_jumps_to_the_first_command_of_the_next_group() {
+    let scratch = Scratch::new();
+    let mut app = palette(&scratch);
+    screen(&mut app, 100, 40);
+    assert_eq!(selected_command(&app), Command::NewBuffer, "the first File");
+
+    plain(&mut app, KeyCode::Right);
+    assert_eq!(
+        selected_command(&app),
+        Command::Undo,
+        "the first command of the next section, not the next command"
+    );
+
+    plain(&mut app, KeyCode::Right);
+    assert_eq!(selected_command(&app), Command::GotoLine, "and the next");
+}
+
+#[test]
+fn left_jumps_back_to_the_first_command_of_the_previous_group() {
+    let scratch = Scratch::new();
+    let mut app = palette(&scratch);
+    screen(&mut app, 100, 40);
+
+    // Into the Edit section, then down a few commands.
+    plain(&mut app, KeyCode::Right);
+    plain(&mut app, KeyCode::Down);
+    plain(&mut app, KeyCode::Down);
+    assert_ne!(selected_command(&app), Command::Undo);
+
+    plain(&mut app, KeyCode::Left);
+    assert_eq!(
+        selected_command(&app),
+        Command::NewBuffer,
+        "the first command of the previous section, not the last one of this one"
+    );
+}
+
+#[test]
+fn the_ends_of_the_menu_hold() {
+    let scratch = Scratch::new();
+    let mut app = palette(&scratch);
+    screen(&mut app, 100, 40);
+
+    // Left on the first section does nothing.
+    plain(&mut app, KeyCode::Left);
+    assert_eq!(selected_command(&app), Command::NewBuffer);
+
+    // Right walks to the last section and stops there.
+    for _ in 0..5 {
+        plain(&mut app, KeyCode::Right);
+    }
+    let last = selected_command(&app);
+    plain(&mut app, KeyCode::Right);
+    assert_eq!(
+        selected_command(&app),
+        last,
+        "the last section is the last one; the menu does not wrap"
+    );
+}
+
+#[test]
+fn the_arrows_still_move_in_the_query_when_there_is_one() {
+    // With something typed the list is flat, so there are no sections to walk —
+    // and the arrows belong to the text cursor.
+    let scratch = Scratch::new();
+    let mut app = palette(&scratch);
+    screen(&mut app, 100, 40);
+    type_str(&mut app, "undo");
+
+    let Overlay::Palette(p) = &app.ui.overlay else {
+        panic!("the palette is open");
+    };
+    let (before_cursor, before_selected) = (p.input.cursor(), p.selected);
+    assert_eq!(before_cursor, 4, "the caret is after the query");
+
+    plain(&mut app, KeyCode::Left);
+    let Overlay::Palette(p) = &app.ui.overlay else {
+        panic!("the palette is open");
+    };
+    assert_eq!(p.input.cursor(), 3, "the caret moved inside the query");
+    assert_eq!(p.selected, before_selected, "and the list did not");
 }
 
 #[test]
