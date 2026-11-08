@@ -66,12 +66,12 @@ second bracket wraps it again. One setting, `auto_pairs`, or `Ctrl+Shift+A` to
 toggle it for the session.
 
 **Multi-cursor** — stack carets with `Ctrl+Shift+Up`/`Ctrl+Shift+Down`, and keep
-holding to keep stacking; `Ctrl+Alt+Up`/`Ctrl+Alt+Down` does the same for fingers
-that learned it first. Add one per
-occurrence of the selection with `Ctrl+D`, or place them with `Alt+Click`.
-Typing, deleting, indenting and newlines apply to every caret as a single undo
-step, and `Esc` collapses back to one. Occurrences are matched literally, so a
-selection of `he` also finds the `he` inside `hello`.
+holding to keep stacking; `Ctrl+Alt+Up`/`Ctrl+Alt+Down` does the same for
+fingers that learned it first. Add one per occurrence of the selection with
+`Ctrl+D`, or place them with `Alt+Click`. Typing, deleting, indenting and
+newlines apply to every caret as a single undo step, and `Esc` collapses back
+to one. Occurrences are matched literally, so a selection of `he` also finds
+the `he` inside `hello`.
 
 **Buttons** — the shortcut bar along the bottom is clickable: point at a hint
 and it lifts onto a button background, click it and the command runs. It is a
@@ -114,17 +114,11 @@ binary files refused rather than corrupted; external-modification detection;
 recent files; session restore. Unsaved buffers are copied to the data directory
 a second after they change, so a crash, a `kill` or a closed terminal does not
 take them with it — the next start brings them back, dirty, at the cursor they
-had. A clean exit discards the copy, because by then you have been asked. Big files open on a worker thread behind a
-progress panel that counts the bytes actually read, so the window keeps painting
-while a two-gigabyte file loads.
+had. A clean exit discards the copy, because by then you have been asked.
 
-**Clipboard** — a copy leaves the editor: the OS pasteboard when there is one,
-and otherwise the terminal's own clipboard through OSC 52, which is the only
-route that reaches your machine over SSH, inside tmux or in a container. The
-editor keeps its own copy either way, so an in-editor paste still works when
-nothing outside will take the text — and the message says which happened rather
-than claiming a copy it did not make. `clipboard = "auto" | "system" |
-"terminal" | "internal"` in `[editor]` chooses the route.
+Big files open on a worker thread behind a progress panel that counts the
+bytes actually read, so the window keeps painting while a two-gigabyte file
+loads.
 
 **Clipboard** — a copy leaves the editor: the OS pasteboard when there is one,
 and otherwise the terminal's own clipboard through OSC 52, which is the only
