@@ -309,7 +309,6 @@ for how to add commands, key bindings, UI components and buffer backends.
 Vibe is a working editor, not a finished product. Known limitations are listed
 in [docs/roadmap.md](docs/roadmap.md); the important ones:
 
-- No split views yet.
 - Line-oriented commands (duplicate/delete/move line, comment toggle, indent,
   trim whitespace) act on the primary cursor and collapse the others; typing,
   deleting and newlines do apply to every cursor.
