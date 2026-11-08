@@ -294,7 +294,7 @@ protocol, so you can tell at a glance which set of caveats applies.
 detected — tmux, GNU screen, Zellij, the VS Code terminal — and lists the
 bindings that host's own defaults consume, with the setting that gives them
 back. The VS Code terminal takes `Ctrl+Shift+P` and `Ctrl+P`; tmux takes its
-prefix; Zellij takes six `Ctrl+<letter>` keys that Vibe also binds.
+prefix; Zellij takes `Ctrl+P`, `Ctrl+N`, `Ctrl+T`, `Ctrl+S`, `Ctrl+O` and `Ctrl+Q`.
 
 **What actually arrived?** Press any key and the panel echoes the event it
 received: the label, the raw code and modifiers, and what that chord runs. A
