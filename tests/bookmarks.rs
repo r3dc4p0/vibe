@@ -46,6 +46,7 @@ fn gutter_click_toggles_and_highlights_bookmark_rectangle() {
         app.active_doc().unwrap().bookmark_caption(1),
         Some("bookmark 1")
     );
+    assert!(app.ui.bookmarks.open, "creating a bookmark opens its panel");
 
     let theme = vibe::ui::theme_of(&app).clone();
     let mut terminal = Terminal::new(TestBackend::new(80, 16)).unwrap();
@@ -76,27 +77,32 @@ fn bookmark_gutter_highlight_can_be_bound_to_panel_visibility() {
         vibe::ui::editor::gutter_width(app.active_doc().unwrap().line_count(), &app.config);
     double_click(&mut app, area.x + gutter.saturating_sub(1), area.y);
 
-    let render_gutter_bg = |app: &mut vibe::app::App| {
+    let render_styles = |app: &mut vibe::app::App| {
         let mut terminal = Terminal::new(TestBackend::new(80, 16)).unwrap();
         terminal.draw(|frame| vibe::ui::draw(frame, app)).unwrap();
-        terminal.backend().buffer()[(area.x + 1, area.y + 1)].bg
+        let buffer = terminal.backend().buffer();
+        (
+            buffer[(area.x + 1, area.y + 1)].bg,
+            buffer[(area.x + gutter + 2, area.y)].fg,
+        )
     };
     let theme = vibe::ui::theme_of(&app).clone();
-    assert_eq!(render_gutter_bg(&mut app), theme.gutter_bg);
+    assert!(app.ui.bookmarks.open, "creation opens the panel");
+    assert_eq!(render_styles(&mut app), (theme.mark, theme.mark));
 
     press(
         &mut app,
         KeyCode::Char('b'),
         KeyModifiers::CONTROL | KeyModifiers::SHIFT,
     );
-    assert_eq!(render_gutter_bg(&mut app), theme.mark);
+    assert_eq!(render_styles(&mut app), (theme.gutter_bg, theme.dim));
 
     press(
         &mut app,
         KeyCode::Char('b'),
         KeyModifiers::CONTROL | KeyModifiers::SHIFT,
     );
-    assert_eq!(render_gutter_bg(&mut app), theme.gutter_bg);
+    assert_eq!(render_styles(&mut app), (theme.mark, theme.mark));
 }
 
 #[test]
@@ -129,11 +135,6 @@ fn bookmark_caption_has_a_phantom_row_and_is_editable_from_panel() {
         vibe::ui::editor::gutter_width(app.active_doc().unwrap().line_count(), &app.config);
     double_click(&mut app, area.x + gutter.saturating_sub(1), area.y + 1);
 
-    press(
-        &mut app,
-        KeyCode::Char('b'),
-        KeyModifiers::CONTROL | KeyModifiers::SHIFT,
-    );
     assert!(app.ui.bookmarks.open);
     screen(&mut app, 80, 16);
     assert!(app.editor_area().width < area.width);

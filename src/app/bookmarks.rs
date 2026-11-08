@@ -39,6 +39,7 @@ impl App {
                 self.ui.bookmarks.selected = Some((self.buffers[index].id(), line));
                 self.ui.bookmarks.caption_cursor = 0;
                 self.ui.bookmarks.replace_default_caption_on_type = true;
+                self.ui.bookmarks.open = true;
             }
         }
         self.sync_bookmark_selection();

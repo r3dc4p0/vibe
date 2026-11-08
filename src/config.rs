@@ -66,7 +66,7 @@ pub struct EditorSettings {
     pub relative_numbers: bool,
     /// Show the line number gutter at all.
     pub line_numbers: bool,
-    /// Show bookmark gutter highlights only while the bookmark panel is open.
+    /// Highlight bookmark gutters and captions only while the panel is open.
     pub bookmark_gutter_highlight_requires_panel: bool,
     /// Render spaces and tabs as visible glyphs.
     pub show_whitespace: bool,
