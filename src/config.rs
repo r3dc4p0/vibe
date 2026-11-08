@@ -66,6 +66,8 @@ pub struct EditorSettings {
     pub relative_numbers: bool,
     /// Show the line number gutter at all.
     pub line_numbers: bool,
+    /// Show bookmark gutter highlights only while the bookmark panel is open.
+    pub bookmark_gutter_highlight_requires_panel: bool,
     /// Render spaces and tabs as visible glyphs.
     pub show_whitespace: bool,
     /// Draw vertical indent guides.
@@ -106,6 +108,7 @@ impl Default for EditorSettings {
             scroll_off: 3,
             relative_numbers: false,
             line_numbers: true,
+            bookmark_gutter_highlight_requires_panel: false,
             show_whitespace: false,
             show_indent_guides: true,
             highlight_cursor_line: true,
@@ -417,6 +420,7 @@ mod tests {
         let (c, _) = Config::from_toml("[editor]\ntab_width = 2\n").unwrap();
         assert_eq!(c.editor.tab_width, 2);
         assert_eq!(c.editor.scroll_off, 3, "unspecified field keeps default");
+        assert!(!c.editor.bookmark_gutter_highlight_requires_panel);
         assert_eq!(c.ui.theme, "vibe-dark");
     }
 
@@ -441,6 +445,10 @@ mod tests {
         let text = c.to_toml().unwrap();
         let (c2, _) = Config::from_toml(&text).unwrap();
         assert_eq!(c2.editor.tab_width, c.editor.tab_width);
+        assert_eq!(
+            c2.editor.bookmark_gutter_highlight_requires_panel,
+            c.editor.bookmark_gutter_highlight_requires_panel
+        );
         assert_eq!(c2.ui.theme, c.ui.theme);
     }
 

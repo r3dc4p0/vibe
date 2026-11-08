@@ -42,17 +42,80 @@ fn gutter_click_toggles_and_highlights_bookmark_rectangle() {
     assert!(!app.active_doc().unwrap().bookmarks().contains_key(&1));
     click(&mut app, area.x + gutter.saturating_sub(1), area.y + 1);
     assert!(app.active_doc().unwrap().bookmarks().contains_key(&1));
+    assert_eq!(
+        app.active_doc().unwrap().bookmark_caption(1),
+        Some("bookmark 1")
+    );
 
     let theme = vibe::ui::theme_of(&app).clone();
     let mut terminal = Terminal::new(TestBackend::new(80, 16)).unwrap();
     terminal
         .draw(|frame| vibe::ui::draw(frame, &mut app))
         .unwrap();
-    let cell = &terminal.backend().buffer()[(area.x + 1, area.y + 1)];
-    assert_eq!(cell.bg, theme.mark);
+    let number = &terminal.backend().buffer()[(area.x + 2, area.y + 2)];
+    let gutter_fill = &terminal.backend().buffer()[(area.x + 1, area.y + 2)];
+    assert_eq!(gutter_fill.bg, theme.mark);
+    assert_eq!(number.fg, theme.gutter_bg);
+    assert_eq!(number.bg, theme.gutter_active_fg);
+    assert_ne!(number.fg, number.bg);
 
-    double_click(&mut app, area.x + gutter.saturating_sub(1), area.y + 1);
+    double_click(&mut app, area.x + gutter.saturating_sub(1), area.y + 2);
     assert!(!app.active_doc().unwrap().bookmarks().contains_key(&1));
+}
+
+#[test]
+fn bookmark_gutter_highlight_can_be_bound_to_panel_visibility() {
+    let scratch = Scratch::new();
+    let mut app = editor_with(scratch.path(), |config| {
+        config.editor.bookmark_gutter_highlight_requires_panel = true;
+    });
+    type_str(&mut app, "first");
+    screen(&mut app, 80, 16);
+    let area = app.editor_area();
+    let gutter =
+        vibe::ui::editor::gutter_width(app.active_doc().unwrap().line_count(), &app.config);
+    double_click(&mut app, area.x + gutter.saturating_sub(1), area.y);
+
+    let render_gutter_bg = |app: &mut vibe::app::App| {
+        let mut terminal = Terminal::new(TestBackend::new(80, 16)).unwrap();
+        terminal.draw(|frame| vibe::ui::draw(frame, app)).unwrap();
+        terminal.backend().buffer()[(area.x + 1, area.y + 1)].bg
+    };
+    let theme = vibe::ui::theme_of(&app).clone();
+    assert_eq!(render_gutter_bg(&mut app), theme.gutter_bg);
+
+    press(
+        &mut app,
+        KeyCode::Char('b'),
+        KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+    );
+    assert_eq!(render_gutter_bg(&mut app), theme.mark);
+
+    press(
+        &mut app,
+        KeyCode::Char('b'),
+        KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+    );
+    assert_eq!(render_gutter_bg(&mut app), theme.gutter_bg);
+}
+
+#[test]
+fn new_bookmarks_receive_progressive_default_captions() {
+    let scratch = Scratch::new();
+    let mut app = editor(scratch.path());
+    type_str(&mut app, "first\nsecond\nthird");
+    screen(&mut app, 80, 16);
+    let area = app.editor_area();
+    let gutter =
+        vibe::ui::editor::gutter_width(app.active_doc().unwrap().line_count(), &app.config);
+
+    double_click(&mut app, area.x + gutter.saturating_sub(1), area.y);
+    screen(&mut app, 80, 16);
+    double_click(&mut app, area.x + gutter.saturating_sub(1), area.y + 3);
+
+    let doc = app.active_doc().unwrap();
+    assert_eq!(doc.bookmark_caption(0), Some("bookmark 1"));
+    assert_eq!(doc.bookmark_caption(2), Some("bookmark 2"));
 }
 
 #[test]

@@ -22,8 +22,24 @@ impl App {
     }
 
     pub(crate) fn toggle_active_bookmark(&mut self, line: usize) {
-        if let Some(doc) = self.active_doc_mut() {
-            doc.toggle_bookmark(line);
+        let Some(index) = self.active_index() else {
+            return;
+        };
+        if self.buffers[index].bookmarks().contains_key(&line) {
+            self.buffers[index].toggle_bookmark(line);
+        } else {
+            let next = self
+                .buffers
+                .iter()
+                .map(|doc| doc.bookmarks().len())
+                .sum::<usize>()
+                + 1;
+            if self.buffers[index].toggle_bookmark(line) {
+                self.buffers[index].set_bookmark_caption(line, format!("bookmark {next}"));
+                self.ui.bookmarks.selected = Some((self.buffers[index].id(), line));
+                self.ui.bookmarks.caption_cursor = 0;
+                self.ui.bookmarks.replace_default_caption_on_type = true;
+            }
         }
         self.sync_bookmark_selection();
     }
@@ -50,6 +66,7 @@ impl App {
         };
         self.ui.bookmarks.selected = Some((document_id, line));
         self.ui.bookmarks.caption_cursor = cursor;
+        self.ui.bookmarks.replace_default_caption_on_type = false;
         self.ui.bookmarks.focused = true;
     }
 
@@ -62,12 +79,22 @@ impl App {
             Action::Move { motion, .. } => match motion {
                 crate::buffer::Motion::Up => self.step_bookmark(-1),
                 crate::buffer::Motion::Down => self.step_bookmark(1),
-                crate::buffer::Motion::Left => self.move_caption_cursor(-1),
-                crate::buffer::Motion::Right => self.move_caption_cursor(1),
+                crate::buffer::Motion::Left => {
+                    self.ui.bookmarks.replace_default_caption_on_type = false;
+                    self.move_caption_cursor(-1);
+                }
+                crate::buffer::Motion::Right => {
+                    self.ui.bookmarks.replace_default_caption_on_type = false;
+                    self.move_caption_cursor(1);
+                }
                 crate::buffer::Motion::LineStart | crate::buffer::Motion::LineStartSmart => {
+                    self.ui.bookmarks.replace_default_caption_on_type = false;
                     self.ui.bookmarks.caption_cursor = 0;
                 }
-                crate::buffer::Motion::LineEnd => self.caption_end(),
+                crate::buffer::Motion::LineEnd => {
+                    self.ui.bookmarks.replace_default_caption_on_type = false;
+                    self.caption_end();
+                }
                 _ => {}
             },
             Action::InsertText(text) => self.insert_bookmark_caption(&text),
@@ -99,6 +126,7 @@ impl App {
             .selected
             .is_some_and(|selected| refs.contains(&selected))
         {
+            self.ui.bookmarks.replace_default_caption_on_type = false;
             self.ui.bookmarks.selected = refs.first().copied();
             self.caption_end();
         }
@@ -118,6 +146,7 @@ impl App {
             .unwrap_or(0);
         let next = (at as isize + delta).clamp(0, refs.len() as isize - 1) as usize;
         self.ui.bookmarks.selected = Some(refs[next]);
+        self.ui.bookmarks.replace_default_caption_on_type = false;
         self.caption_end();
     }
 
@@ -154,6 +183,12 @@ impl App {
         let Some((index, _, line)) = self.selected_bookmark() else {
             return;
         };
+        if self.ui.bookmarks.replace_default_caption_on_type {
+            self.buffers[index].set_bookmark_caption(line, text.to_string());
+            self.ui.bookmarks.caption_cursor = text.chars().count();
+            self.ui.bookmarks.replace_default_caption_on_type = false;
+            return;
+        }
         let mut chars: Vec<char> = self.buffers[index]
             .bookmark_caption(line)
             .unwrap_or_default()

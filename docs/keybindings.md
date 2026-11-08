@@ -131,6 +131,12 @@ line. It takes screen space but is not part of the document and is not saved.
 Bookmarks are session-only and remain attached to their line numbers, not to
 the text; deleting enough lines to move one past the end removes it.
 
+New bookmarks receive a default caption (`bookmark 1`, `bookmark 2`, …); typing
+in the selected caption replaces that default. By default, gutter highlights
+remain visible whether the panel is open or closed. Set
+`editor.bookmark_gutter_highlight_requires_panel = true` in `config.toml` to
+show those highlights only while the bookmark panel is open.
+
 The wheel moves the view, never the cursor: it can travel the whole buffer and
 leaves the caret where it was, even off screen. While the caret is out of view
 the status bar adds its line in amber, with `↑` or `↓` for the direction to

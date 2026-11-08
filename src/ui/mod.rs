@@ -459,6 +459,7 @@ pub struct BookmarkPanel {
     pub selected: Option<(usize, usize)>,
     pub caption_cursor: usize,
     pub scroll: usize,
+    pub replace_default_caption_on_type: bool,
     pub area: Rect,
     pub hits: Vec<BookmarkHit>,
 }
@@ -903,6 +904,8 @@ fn draw_pane(frame: &mut Frame, area: Rect, app: &mut App, pane: usize, install:
         brackets,
         cache,
         focused: pane == app.active_pane && app.ui.overlay.is_none() && !app.ui.bookmarks.focused,
+        bookmark_gutter_highlight: !app.config.editor.bookmark_gutter_highlight_requires_panel
+            || app.ui.bookmarks.open,
         follows_cursor: pane == app.active_pane,
     };
     renderer.render(frame, area);

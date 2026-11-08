@@ -504,6 +504,8 @@ pub struct EditorRenderer<'a> {
     /// False for every pane but the active one, and false while an overlay owns
     /// the terminal cursor.
     pub focused: bool,
+    /// Whether bookmarked gutter cells should be highlighted this frame.
+    pub bookmark_gutter_highlight: bool,
     /// Let the viewport follow the cursor.
     ///
     /// True only for the pane the cursor belongs to. An inactive pane shows the
@@ -789,14 +791,23 @@ impl EditorRenderer<'_> {
             };
 
             if show_numbers && first_row_of_line {
-                let bookmarked = self.doc.bookmarks().contains_key(&line);
+                let bookmarked =
+                    self.bookmark_gutter_highlight && self.doc.bookmarks().contains_key(&line);
                 if bookmarked {
                     buf.set_style(
                         Rect::new(area.x, y, gutter_w, 1),
                         Style::default().fg(theme.bg).bg(theme.mark),
                     );
                 }
-                let (n, style) = if line == cur_line {
+                let (n, style) = if line == cur_line && bookmarked {
+                    (
+                        line + 1,
+                        Style::default()
+                            .fg(theme.gutter_bg)
+                            .bg(theme.gutter_active_fg)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                } else if line == cur_line {
                     (
                         line + 1,
                         Style::default()
@@ -1000,6 +1011,7 @@ mod tests {
                     brackets: None,
                     cache: &mut cache,
                     focused: true,
+                    bookmark_gutter_highlight: true,
                     follows_cursor: true,
                 };
                 r.render(frame, area);
