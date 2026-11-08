@@ -80,6 +80,10 @@ pub fn draw(frame: &mut Frame, app: &mut App) -> Option<(u16, u16)> {
             let r = draw_help(buf, area, &theme, deco, &lines, &mut h);
             (r, Overlay::Help(h))
         }
+        Overlay::KeyReport(mut k) => {
+            let r = draw_key_report(buf, area, &theme, deco, &mut k);
+            (r, Overlay::KeyReport(k))
+        }
     };
 
     app.ui.overlay = restored;
@@ -532,6 +536,107 @@ fn draw_help(
         );
     }
     None
+}
+
+/// The key report: the list, a rule, and the key that last arrived.
+///
+/// The echo is pinned to the bottom rather than appended to the list, because
+/// it is the one line that changes while the panel is open — scrolling to find
+/// it would defeat the purpose of pressing a key to see what came through.
+fn draw_key_report(
+    buf: &mut Buffer,
+    area: Rect,
+    theme: &Theme,
+    deco: Deco,
+    report: &mut super::KeyReportState,
+) -> Option<(u16, u16)> {
+    let rect = centered(area, 90, 85);
+    let inner = panel(
+        buf,
+        rect,
+        "Which Keys Reach Vibe — Esc to close",
+        theme,
+        deco,
+    );
+    if inner.height == 0 {
+        return None;
+    }
+    // Two rows at the bottom: the rule and the echo.
+    let body = Rect {
+        height: inner.height.saturating_sub(2),
+        ..inner
+    };
+    let max_scroll = report.lines.len().saturating_sub(body.height as usize);
+    report.scroll = report.scroll.min(max_scroll);
+
+    for row in 0..body.height {
+        let idx = report.scroll + row as usize;
+        if idx >= report.lines.len() {
+            break;
+        }
+        let text = &report.lines[idx];
+        let style = if text.starts_with("    ") {
+            Style::default().fg(theme.fg)
+        } else if text.is_empty() {
+            Style::default()
+        } else {
+            Style::default()
+                .fg(theme.overlay_title)
+                .add_modifier(Modifier::BOLD)
+        };
+        buf.set_string(
+            body.x,
+            body.y + row,
+            fit(text, body.width as usize),
+            style.bg(theme.overlay_bg),
+        );
+    }
+
+    let rule_y = inner.y + inner.height.saturating_sub(2);
+    let rule = Style::default().bg(theme.overlay_bg).fg(theme.border);
+    buf.set_string(inner.x, rule_y, "─".repeat(inner.width as usize), rule);
+    let echo = echo_line(report);
+    buf.set_string(
+        inner.x,
+        rule_y + 1,
+        fit(&echo, inner.width as usize),
+        Style::default().bg(theme.overlay_bg).fg(theme.fg),
+    );
+    None
+}
+
+/// `Last key: Ctrl+Shift+P   Char('p') CTRL+SHIFT   → runs Command Palette…`
+fn echo_line(report: &super::KeyReportState) -> String {
+    let Some(event) = report.last else {
+        return "Last key: none yet — press a shortcut to see what arrives".to_string();
+    };
+    let label = KeyChord::from_event(&event).label();
+    format!(
+        "Last key: {label}   {:?}   {}   {}",
+        event.code,
+        mods_label(event.modifiers),
+        report.note
+    )
+}
+
+fn mods_label(mods: crossterm::event::KeyModifiers) -> String {
+    use crossterm::event::KeyModifiers as M;
+    let mut parts = Vec::new();
+    for (flag, name) in [
+        (M::CONTROL, "CTRL"),
+        (M::ALT, "ALT"),
+        (M::SHIFT, "SHIFT"),
+        (M::SUPER, "SUPER"),
+    ] {
+        if mods.contains(flag) {
+            parts.push(name);
+        }
+    }
+    if parts.is_empty() {
+        "no modifiers".to_string()
+    } else {
+        parts.join("+")
+    }
 }
 
 /// The help screen contents, generated from the command registry so it can never

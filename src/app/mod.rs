@@ -1307,6 +1307,7 @@ impl App {
             Command::WordCount => self.word_count(),
             Command::ShowStats => self.show_stats(),
             Command::Help => self.open_help(),
+            Command::KeyReport => self.open_key_report(),
             Command::CommandPalette => self.open_palette(ui::PaletteMode::Commands),
         }
     }

@@ -14,8 +14,8 @@ use crate::indent::IndentStyle;
 use crate::search::{self, Query};
 use crate::ui::ConfirmAction;
 use crate::ui::{
-    Confirm, FindBar, HelpState, Overlay, Palette, PaletteAction, PaletteItem, PaletteMode,
-    ReplaceBar, TextInput,
+    Confirm, FindBar, HelpState, KeyReportState, Overlay, Palette, PaletteAction, PaletteItem,
+    PaletteMode, ReplaceBar, TextInput,
 };
 
 /// How many palette rows are built at most.
@@ -212,6 +212,21 @@ impl App {
 
     pub fn open_help(&mut self) {
         self.ui.overlay = Overlay::Help(HelpState::default());
+    }
+
+    /// Open the key report: what this host takes, and what the wire merges.
+    ///
+    /// Built once, here, because everything in it is a property of the
+    /// environment and the keymap rather than of the frame.
+    pub fn open_key_report(&mut self) {
+        let hosts = crate::keyreport::detect();
+        let lines = crate::keyreport::report(&self.keymap, &hosts, self.enhanced_keys);
+        self.ui.overlay = Overlay::KeyReport(KeyReportState {
+            scroll: 0,
+            last: None,
+            note: String::new(),
+            lines,
+        });
     }
 
     pub fn goto_prompt(&mut self) {
@@ -654,6 +669,23 @@ impl App {
                 }
                 _ => self.ui.overlay = Overlay::Confirm(c),
             },
+            // Everything but the two closing keys is echoed, including the
+            // arrows: the point of the panel is to show what arrives, and a
+            // key that also scrolls is still a key that arrived.
+            Overlay::KeyReport(mut r) => {
+                if !matches!(key.code, KeyCode::Esc | KeyCode::F(2)) {
+                    match key.code {
+                        KeyCode::Up => r.scroll = r.scroll.saturating_sub(1),
+                        KeyCode::Down => r.scroll += 1,
+                        KeyCode::PageUp => r.scroll = r.scroll.saturating_sub(10),
+                        KeyCode::PageDown => r.scroll += 10,
+                        _ => {}
+                    }
+                    r.last = Some(key);
+                    r.note = describe_key(&self.keymap, &key);
+                    self.ui.overlay = Overlay::KeyReport(r);
+                }
+            }
             Overlay::Help(mut h) => match key.code {
                 KeyCode::Esc | KeyCode::Char('q') | KeyCode::F(1) => {}
                 KeyCode::Down => {
@@ -683,6 +715,27 @@ impl App {
             PaletteAction::OpenFile(path) => self.open_path(path),
             PaletteAction::CompareFile(path) => self.compare_with_path(path),
         }
+    }
+}
+
+/// What the key that just arrived does here.
+///
+/// The interesting case is the one the panel exists for: a shortcut that
+/// arrives as something else. It says "runs Save" when `Ctrl+Shift+S` came in
+/// as `Ctrl+S`, which is the whole story in three words.
+fn describe_key(keymap: &crate::keymap::Keymap, key: &KeyEvent) -> String {
+    let chord = crate::keymap::KeyChord::from_event(key);
+    if let Some(cmd) = keymap.lookup(&chord) {
+        return format!("→ runs {}", cmd.title());
+    }
+    match key.code {
+        KeyCode::Char(c)
+            if !key.modifiers.contains(KeyModifiers::CONTROL)
+                && !key.modifiers.contains(KeyModifiers::ALT) =>
+        {
+            format!("→ types {c:?}")
+        }
+        _ => "→ nothing is bound to this".to_string(),
     }
 }
 

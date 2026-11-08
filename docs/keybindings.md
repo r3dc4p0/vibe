@@ -261,7 +261,11 @@ around this where it can and tells you where it cannot.
    not, use `Ctrl+Shift+C`, which is bound to `edit.copy` and never reaches the
    terminal as a signal.
 2. **`Ctrl+Shift+X` is not distinguishable** from `Ctrl+X` on most terminals:
-   the terminal sends the same byte. Vibe therefore does not rely on it.
+   the terminal sends the same byte. Vibe asks for the protocol that fixes this
+   (`[terminal] keyboard_enhancement`) and, where the terminal refuses, the
+   shifted binding is unreachable — the unshifted one runs instead, silently.
+   `Ctrl+Shift+S` saving instead of saving as is the common symptom; `F2` lists
+   every binding this happens to.
 3. **`Ctrl+Tab` may be swallowed** by the terminal or the window manager. It is
    bound, but `Ctrl+PageDown`/`Ctrl+PageUp` are not always available either, so
    `Ctrl+Tab` also works from the command palette (`buffer.next`).
@@ -281,6 +285,42 @@ around this where it can and tells you where it cannot.
 
 The status bar shows `~keys` when Vibe is running *without* the enhanced keyboard
 protocol, so you can tell at a glance which set of caveats applies.
+
+### Finding out what your terminal does
+
+`F2` (`help.keyReport`) answers the two questions this section raises.
+
+**Which of my shortcuts does the host take?** The panel names the host it
+detected — tmux, GNU screen, Zellij, the VS Code terminal — and lists the
+bindings that host's own defaults consume, with the setting that gives them
+back. The VS Code terminal takes `Ctrl+Shift+P` and `Ctrl+P`; tmux takes its
+prefix; Zellij takes six `Ctrl+<letter>` keys that Vibe also binds.
+
+**What actually arrived?** Press any key and the panel echoes the event it
+received: the label, the raw code and modifiers, and what that chord runs. A
+`Ctrl+Shift+P` that arrives as `Char('p') CONTROL` and runs *quick open* is the
+whole problem in one line. A key that leaves the echo unchanged never arrived at
+all — which is the only way to observe a key the host swallowed, since there is
+no event to inspect and no API that reports one.
+
+`vibe --key-report` prints the same report without starting the editor — useful
+when the editor will not start, or when filing a bug.
+
+### What to do about a conflict
+
+In order of how much they cost:
+
+1. **Give the key back to the terminal's application.** In the VS Code terminal
+   that is `terminal.integrated.commandsToSkipShell`; in tmux it is tapping the
+   prefix twice; in Zellij it is `keybinds`.
+2. **Turn on the extended protocol** if the terminal speaks it:
+   `[terminal] keyboard_enhancement = "on"` (or `VIBE_ENHANCED_KEYS=on`). This
+   is what makes `Ctrl+Shift+S` its own key rather than `Ctrl+S`.
+3. **Rebind** — see below. Every command can be moved, and `--list-keys` prints
+   the ids to move it to.
+4. **Use the palette.** It runs every command, so a lost shortcut is an
+   inconvenience rather than a dead feature — as long as the palette's own key
+   survives, which is why it is the first thing to rebind if the host takes it.
 
 ## Rebinding
 

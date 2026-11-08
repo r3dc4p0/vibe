@@ -14,6 +14,7 @@
 //! | [`filesystem`] | loading, atomic saving, encoding and line endings          |
 //! | [`commands`]   | command registry, metadata and dispatch                    |
 //! | [`keymap`]     | key chord parsing and binding resolution                   |
+//! | [`keyreport`]  | which shortcuts the host terminal takes or merges          |
 //! | [`input`]      | terminal event normalisation                               |
 //! | [`ui`]         | layout, painting, overlays                                 |
 //! | [`app`]        | application state machine and event loop                   |
@@ -38,6 +39,7 @@ pub mod fuzzy;
 pub mod indent;
 pub mod input;
 pub mod keymap;
+pub mod keyreport;
 pub mod logging;
 pub mod platform;
 pub mod recovery;

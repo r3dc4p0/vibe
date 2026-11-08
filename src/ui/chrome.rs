@@ -624,6 +624,9 @@ fn hint_list(app: &App) -> Vec<Hint> {
                 raw("Enter", "run", None),
                 raw("Esc", "cancel", None),
             ],
+            // Not a button: the panel is already open, and the point of the
+            // bar here is to say that any key can be tried without effect.
+            OverlayKind::KeyReport => vec![raw("any key", "echo", None), raw("Esc", "close", None)],
             _ => vec![raw("Esc", "cancel", None)],
         }
     };
@@ -808,6 +811,7 @@ pub enum OverlayKind {
     SaveAs,
     Confirm,
     Help,
+    KeyReport,
 }
 
 /// Draw a bordered panel and return its inner area.

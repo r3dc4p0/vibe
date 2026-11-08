@@ -171,6 +171,7 @@ vibe notes.md           # open a file (created on first save if missing)
 vibe a.rs b.rs          # open several files
 vibe --print-config     # print the effective configuration as TOML
 vibe --list-keys        # print every command and its bindings
+vibe --key-report       # explain which shortcuts this terminal takes or merges
 ```
 
 | Flag | Meaning |
@@ -179,6 +180,7 @@ vibe --list-keys        # print every command and its bindings
 | `--ui <pixel\|cell>` | How the chrome is drawn: hairlines or block glyphs |
 | `--print-config` | Print the effective configuration and exit |
 | `--list-keys` | Print the key bindings and exit |
+| `--key-report` | Explain which shortcuts this terminal takes or merges, and exit |
 | `--smoke` | Start, draw one frame and exit (startup check for CI) |
 | `--no-log` | Do not write a log file |
 | `-v`, `--verbose` | Verbose logging |
@@ -213,13 +215,22 @@ The essentials:
 | `Alt+D` | Compare with another file |
 | `]` / `[` | Next / previous change (in the diff view) |
 | `F1` | Help |
+| `F2` | Which keys reach Vibe — the report below, with a live echo |
 
 > **Terminals are not all the same.** `Ctrl+C` is delivered as `SIGINT` by many
 > terminals before the application sees it, and `Ctrl+Shift+X` / `Ctrl+Tab`
 > cannot be distinguished without the Kitty keyboard protocol. Vibe enables the
 > protocol when the terminal supports it and falls back to unambiguous
 > alternatives otherwise; the status bar shows `~keys` when the fallback is
-> active. See [docs/keybindings.md](docs/keybindings.md).
+> active.
+>
+> When a shortcut does nothing, `F2` says why. It names the host it detected
+> (tmux, screen, Zellij, the VS Code terminal), lists the bindings that host
+> takes for itself, lists the ones the wire merges — `Ctrl+Shift+S` arriving as
+> `Ctrl+S` and running Save — and echoes each key as it arrives, so a shortcut
+> the terminal swallowed is visibly a key that never came. `vibe --key-report`
+> prints the same report without starting the editor. See
+> [docs/keybindings.md](docs/keybindings.md).
 
 ## Configuration
 

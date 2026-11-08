@@ -37,6 +37,7 @@ ever point one way.
 | `editing` | Line-oriented commands (comment, indent, move, duplicate, trim) |
 | `input` | Key event → `Action` translation |
 | `keymap` | `KeyChord`, binding table, config parsing |
+| `keyreport` | Which shortcuts the host takes, and which ones the wire merges |
 | `commands` | The `Command` enum: ids, titles, categories, default keys |
 | `search` | Query model, match set, regex and literal search, replacement |
 | `filesystem` | Loading, encoding/EOL detection, atomic saving |
@@ -688,6 +689,35 @@ Keyboard enhancement is negotiated by *name* (`$TERM`, `$TERM_PROGRAM`,
 probe blocks for up to two seconds when the terminal does not answer — which
 would dominate the startup budget.
 
+### A shortcut that cannot work should say so
+
+`keyreport` exists because the two ways a shortcut fails are both silent.
+
+The first is the host. A key the terminal, the multiplexer or the window manager
+handles never reaches the process: there is no event, no error, nothing to
+observe, and no API that reports one. The only honest thing to do is say which
+host was detected — from the environment, innermost first, so tmux inside iTerm2
+is both — and list the bindings that host's *defaults* are known to consume.
+Those are guesses about the environment, so they are labelled as such.
+
+The second is the wire, and it is exact. Without the extended protocol a chord
+is one byte, and the byte is what crossterm decodes: `Ctrl+Shift+S` and `Ctrl+S`
+are both `0x13`, `Ctrl+I` is Tab, `Ctrl+H` is Backspace, `Ctrl+[` is Esc.
+[`keyreport::legacy_byte`] computes the byte and
+[`keyreport::arrives_as`] computes the chord the editor will see, so "this
+binding will run Save instead" is a fact about two functions rather than a table
+of folklore. Chords that make no claim (Alt, function keys, `Ctrl+Tab`) return
+`None` instead of guessing.
+
+A merged chord whose twin runs the *same* command is not reported: `Ctrl+Shift+C`
+exists only as an escape hatch for terminals that turn `Ctrl+C` into `SIGINT`,
+and it landing on `Ctrl+C` costs nothing. Warnings that are not true are worse
+than no warnings.
+
+The panel adds the one measurement to those two inferences: it echoes the last
+`KeyEvent` it received, with its raw code and modifiers. That is how a user
+observes a swallowed key — by pressing it and watching nothing change.
+
 ## Testing strategy
 
 | Layer | How it is tested |
@@ -705,6 +735,7 @@ would dominate the startup budget.
 | Indent guides | `tests/indent_guides.rs`: the rule runs from a block's first line to its last and stops at the closing brace, a blank line inside keeps it and a blank line after does not, a nested block gets its own, the spacing follows the file's indent width, the toggle and its key work, a flat file has none, and a rule never lands on a character |
 | Diff | `src/diff.rs`: identical files, an inserted, deleted and rewritten line, a rewritten block (paired rows, not all-removals-then-all-additions), an empty side, nothing in common, duplicated lines with no anchor, a large file with one edit, a block inserted in the middle, and a missing final newline not counting as a change. `tests/diff.rs`: both files side by side, the tint on each side, the gap a one-sided row leaves, columns staying aligned across an insertion, one scroll offset moving both, opening on the first change, `]`/`[` stepping through blocks (and through a tall one), the scroll keys stopping at the ends, `Esc` closing, typing not editing, a buffer compared with itself refused, comparing with an open file and with one that has to be opened, closing a compared file closing the view, and the wheel scrolling |
 | Command palette | `tests/palette.rs`: the sections are one per category in the declared order and every command sits under its own, a heading is a rule with the name centred in it, the selection opens on a command rather than a heading, stepping walks over them (and never rests on one in 240 steps either way), Enter on a heading runs nothing, typing flattens the list and clearing brings the sections back, the footer counts commands rather than headings, the separator is drawn in the panel's border colour and is visible against it, and the file picker has no sections, `→`/`←` reach the first command of the next and previous sections and stop at the ends, and with a query the arrows move the text cursor instead |
+| Key report | `src/keyreport.rs` is pure: `Ctrl+Shift+S` and `Ctrl+S` are one byte, `Ctrl+I`/`Ctrl+H`/`Ctrl+[` arrive as Tab/Backspace/Esc, a chord that round-trips is not reported, `Ctrl+Shift+C` is not reported because it lands on the same command, the extended protocol removes every merged binding, chords with no byte (Alt, F-keys, `Ctrl+Tab`) make no claim, hosts are detected innermost first, an unknown terminal claims nothing, and the report names the host and what arrives instead. `tests/keyreport.rs`: `F2` opens the panel, the echo shows the chord and the command it runs (and the raw modifiers, so a missing Shift is visible), a typed character is reported as typing and does not reach the document, `Esc` closes, and scrolling to the end keeps the echo pinned |
 | Clipboard | `src/clipboard.rs`: the internal buffer round-trips, terminal mode queues exactly one sequence and consumes it, system mode never asks the terminal, auto falls back to it, base64 against the known vectors (including a multi-byte character), a selection over the size limit is refused with a reason, and the mode parses from the setting. `tests/clipboard.rs`: `Ctrl+C` on a selection and on a bare line, `Ctrl+X` both ways, the message that says whether the text left, and the setting choosing the channel |
 | Hint bar | `tests/hints.rs`: clicking save saves, commands opens the palette, open opens the picker, find opens the find bar, help opens help, and close closes the diff view; a click on the empty part of the bar does nothing; the caret does not move; the pointer lights the hint under it and the light goes out when it leaves; a hidden bar has no buttons, including after being hidden at runtime; a narrow bar's hits stay inside the screen; and nothing is pressable while a palette is up |
 | Features | `tests/features.rs`: reload (and the confirmation that guards it), recents, session restore, binary refusal, a key override, quick open, trim, regex backreferences, whole-word, UTF-16 and CR round trips, the display toggles, a colour override and the document statistics |

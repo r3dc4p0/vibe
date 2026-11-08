@@ -27,6 +27,7 @@ OPTIONS:
         --no-log            Disable file logging
         --print-config      Print the effective configuration and exit
         --list-keys         Print the effective key bindings and exit
+        --key-report        Explain which shortcuts this terminal takes or merges
         --smoke             Start, draw one frame and exit (startup check)
     -v, --verbose           Verbose logging (debug level)
 
@@ -39,7 +40,7 @@ KEY SHORTCUTS:
     Ctrl+Y      Redo                     Ctrl+W      Close buffer
     Ctrl+C/X/V  Copy / cut / paste       Ctrl+Tab    Next buffer
     Ctrl+A      Select all               F1          Help
-    Ctrl+Q      Quit
+    Ctrl+Q      Quit                     F2          Which keys reach Vibe
 
     Ctrl+C copies the selection (or the current line) and never quits.
     Esc closes dialogs; Ctrl+Q quits.
@@ -53,6 +54,7 @@ struct Args {
     no_log: bool,
     print_config: bool,
     list_keys: bool,
+    key_report: bool,
     smoke: bool,
     help: bool,
     version: bool,
@@ -67,6 +69,7 @@ fn parse_args() -> Result<Args, String> {
         no_log: false,
         print_config: false,
         list_keys: false,
+        key_report: false,
         smoke: false,
         help: false,
         version: false,
@@ -81,6 +84,7 @@ fn parse_args() -> Result<Args, String> {
             "--no-log" => args.no_log = true,
             "--print-config" => args.print_config = true,
             "--list-keys" => args.list_keys = true,
+            "--key-report" => args.key_report = true,
             "--smoke" => args.smoke = true,
             "--ui" => {
                 let value = it.next().ok_or("--ui requires a style")?;
@@ -163,6 +167,24 @@ fn main() -> ExitCode {
         for (chord, cmd) in keymap.all() {
             println!("{:<20} {}", chord.to_config_string(), cmd.id());
         }
+        return ExitCode::SUCCESS;
+    }
+
+    if args.key_report {
+        let mut keymap = vibe::keymap::Keymap::defaults();
+        let warnings = keymap.apply_overrides(&config.keys);
+        for w in warnings {
+            eprintln!("vibe: {w}");
+        }
+        let enhancement =
+            Enhancement::parse(&config.terminal.keyboard_enhancement).unwrap_or(Enhancement::Auto);
+        let hosts = vibe::keyreport::detect();
+        let enhanced = vibe::terminal::should_enable_enhancement(enhancement);
+        for line in vibe::keyreport::report(&keymap, &hosts, enhanced) {
+            println!("{line}");
+        }
+        println!();
+        println!("Inside Vibe, F2 shows the same report and echoes each key as it arrives.");
         return ExitCode::SUCCESS;
     }
 

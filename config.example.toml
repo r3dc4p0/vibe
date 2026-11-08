@@ -107,7 +107,9 @@ keyboard_enhancement = "auto"
 # Modifiers: ctrl, alt, shift, super. Keys: a character, a named key (enter, esc,
 # tab, space, backspace, delete, insert, home, end, pageup, pagedown, up, down,
 # left, right) or f1–f12. An empty value removes a binding.
-# Run `vibe --list-keys` for the ids.
+# Run `vibe --list-keys` for the ids, and `vibe --key-report` (or F2 inside the
+# editor) to see which of the defaults this terminal takes for itself or merges
+# with an unshifted twin.
 [keys]
 # "ctrl+shift+p" = "help.commandPalette"
 # "f5" = "file.reload"

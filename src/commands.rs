@@ -113,6 +113,7 @@ pub enum Command {
 
     // Help
     Help,
+    KeyReport,
     CommandPalette,
 }
 
@@ -182,6 +183,7 @@ impl Command {
         Command::WordCount,
         Command::ShowStats,
         Command::Help,
+        Command::KeyReport,
         Command::CommandPalette,
     ];
 
@@ -251,6 +253,7 @@ impl Command {
             Command::WordCount => "view.wordCount",
             Command::ShowStats => "view.stats",
             Command::Help => "help.show",
+            Command::KeyReport => "help.keyReport",
             Command::CommandPalette => "help.commandPalette",
         }
     }
@@ -321,6 +324,7 @@ impl Command {
             Command::WordCount => "Word Count",
             Command::ShowStats => "Document Statistics",
             Command::Help => "Keyboard Shortcuts",
+            Command::KeyReport => "Which Keys Reach Vibe",
             Command::CommandPalette => "Command Palette…",
         }
     }
@@ -392,7 +396,7 @@ impl Command {
             | Command::DiffNextChange
             | Command::DiffPrevChange
             | Command::ShowStats => Category::View,
-            Command::Help | Command::CommandPalette => Category::Help,
+            Command::Help | Command::KeyReport | Command::CommandPalette => Category::Help,
         }
     }
 
@@ -426,6 +430,7 @@ impl Command {
             Command::NextBuffer => &["ctrl+tab"],
             Command::PrevBuffer => &["ctrl+shift+tab"],
             Command::Help => &["f1"],
+            Command::KeyReport => &["f2"],
             Command::Quit => &["ctrl+q"],
             Command::QuitAll => &["ctrl+shift+q"],
             Command::FindNext => &["f3"],
@@ -485,6 +490,7 @@ impl Command {
                 | Command::DiffNextChange
                 | Command::DiffPrevChange
                 | Command::Help
+                | Command::KeyReport
                 | Command::SplitPane
                 | Command::ClosePane
                 | Command::ToggleTheme
@@ -522,7 +528,7 @@ mod tests {
     fn all_variants_are_listed() {
         // Guards against forgetting to add a new variant to `ALL`, which would
         // make it invisible to the palette and the keymap builder.
-        assert_eq!(Command::ALL.len(), 64);
+        assert_eq!(Command::ALL.len(), 65);
     }
 
     #[test]

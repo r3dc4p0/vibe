@@ -335,6 +335,26 @@ pub struct HelpState {
     pub scroll: usize,
 }
 
+/// Key report state: where the list is scrolled, and the last key that arrived.
+///
+/// The last key is the whole point. Everything else in the report is inference
+/// from the environment; this is the one measurement — press the shortcut that
+/// does nothing and read what the terminal actually sent, or see that it sent
+/// nothing at all.
+#[derive(Debug, Clone, Default)]
+pub struct KeyReportState {
+    pub scroll: usize,
+    pub last: Option<crossterm::event::KeyEvent>,
+    /// What the last key does, filled in as keys arrive.
+    pub note: String,
+    /// The report, built once when the panel opens.
+    ///
+    /// It depends on the keymap, the environment and the keyboard protocol —
+    /// none of which change while the panel is up — so drawing reads it rather
+    /// than rebuilding it sixty times a second.
+    pub lines: Vec<String>,
+}
+
 /// The single overlay slot: at most one modal UI is open at a time.
 #[derive(Debug, Clone)]
 pub enum Overlay {
@@ -348,6 +368,7 @@ pub enum Overlay {
     SaveAs(PathPrompt),
     Confirm(Confirm),
     Help(HelpState),
+    KeyReport(KeyReportState),
 }
 
 impl Overlay {
@@ -363,6 +384,7 @@ impl Overlay {
             Overlay::SaveAs(_) => OverlayKind::SaveAs,
             Overlay::Confirm(_) => OverlayKind::Confirm,
             Overlay::Help(_) => OverlayKind::Help,
+            Overlay::KeyReport(_) => OverlayKind::KeyReport,
         }
     }
 
