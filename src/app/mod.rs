@@ -632,6 +632,7 @@ impl App {
                             &self.config,
                             text_width,
                             visual_row,
+                            self.show_bookmark_annotations(),
                         );
                         if let Some(line) = line {
                             if self.gutter_click_count(line, mouse.column, mouse.row) == 2 {
@@ -734,7 +735,12 @@ impl App {
         }
         let rel_row = (row - area.y) as usize;
         let target = (column - area.x - gutter) as usize;
-        let display_row = doc.editor_row_for_display_row(cfg, self.text_width(), rel_row)?;
+        let display_row = doc.editor_row_for_display_row(
+            cfg,
+            self.text_width(),
+            rel_row,
+            self.show_bookmark_annotations(),
+        )?;
 
         let (line, offset) = match display_row {
             crate::ui::editor::EditorRow::Bookmark { .. } => return None,
@@ -773,7 +779,12 @@ impl App {
             (column - area.x - gutter) as usize
         };
         let rel_row = (row - area.y) as usize;
-        let display_row = doc.editor_row_for_display_row(cfg, self.text_width(), rel_row);
+        let display_row = doc.editor_row_for_display_row(
+            cfg,
+            self.text_width(),
+            rel_row,
+            self.show_bookmark_annotations(),
+        );
 
         let last = doc.line_count().saturating_sub(1);
         let (line, offset) = match display_row {
@@ -961,6 +972,7 @@ impl App {
     /// that does not have the focus, at *that* pane's width.
     fn scroll_vertical(&mut self, idx: usize, wrap: Option<usize>, delta: isize) {
         let tab_width = self.config.tab_width();
+        let show_bookmark_annotations = self.show_bookmark_annotations();
         let rows = self.buffers[idx].viewport_rows().max(1);
         let doc = &mut self.buffers[idx];
 
@@ -980,9 +992,10 @@ impl App {
                 remaining -= 1;
                 continue;
             }
-            if doc
-                .bookmark_caption(max_top)
-                .is_some_and(|caption| !caption.is_empty())
+            if show_bookmark_annotations
+                && doc
+                    .bookmark_caption(max_top)
+                    .is_some_and(|caption| !caption.is_empty())
             {
                 remaining -= 1;
                 if remaining == 0 {
@@ -996,7 +1009,8 @@ impl App {
             max_sub = cache.height(doc.storage(), max_top).saturating_sub(1);
             remaining -= 1;
         }
-        if max_sub == 0
+        if show_bookmark_annotations
+            && max_sub == 0
             && max_top < last
             && doc
                 .bookmark_caption(max_top)

@@ -83,26 +83,28 @@ fn bookmark_gutter_highlight_can_be_bound_to_panel_visibility() {
         let buffer = terminal.backend().buffer();
         (
             buffer[(area.x + 1, area.y + 1)].bg,
-            buffer[(area.x + gutter + 2, area.y)].fg,
+            buffer[(area.x + gutter + 2, area.y)].symbol().to_string(),
         )
     };
     let theme = vibe::ui::theme_of(&app).clone();
     assert!(app.ui.bookmarks.open, "creation opens the panel");
-    assert_eq!(render_styles(&mut app), (theme.mark, theme.mark));
+    assert_eq!(render_styles(&mut app), (theme.mark, "b".to_string()));
 
     press(
         &mut app,
         KeyCode::Char('b'),
         KeyModifiers::CONTROL | KeyModifiers::SHIFT,
     );
-    assert_eq!(render_styles(&mut app), (theme.gutter_bg, theme.dim));
+    assert_eq!(render_styles(&mut app), (theme.gutter_bg, "r".to_string()));
+    click(&mut app, area.x + gutter + 2, area.y);
+    assert_eq!(cursor_1(&app), (1, 3));
 
     press(
         &mut app,
         KeyCode::Char('b'),
         KeyModifiers::CONTROL | KeyModifiers::SHIFT,
     );
-    assert_eq!(render_styles(&mut app), (theme.mark, theme.mark));
+    assert_eq!(render_styles(&mut app), (theme.mark, "b".to_string()));
 }
 
 #[test]

@@ -375,10 +375,11 @@ fn fill_rows(
     top: usize,
     sub: usize,
     rows: usize,
-    line_count: usize,
     bookmarks: &std::collections::BTreeMap<usize, String>,
+    show_bookmark_annotations: bool,
 ) -> Vec<EditorRow> {
     let mut out = Vec::with_capacity(rows);
+    let line_count = storage.len_lines();
     if line_count == 0 {
         return out;
     }
@@ -388,7 +389,10 @@ fn fill_rows(
             if line >= line_count {
                 break;
             }
-            if let Some(caption) = bookmarks.get(&line).filter(|caption| !caption.is_empty()) {
+            if let Some(caption) = bookmarks
+                .get(&line)
+                .filter(|caption| show_bookmark_annotations && !caption.is_empty())
+            {
                 out.push(EditorRow::Bookmark {
                     line,
                     caption: caption.to_string(),
@@ -408,7 +412,10 @@ fn fill_rows(
         let Some(layout) = cache.layout(storage, line) else {
             // Too long to wrap: one row, painted through the plain path.
             if seg == 0 {
-                if let Some(caption) = bookmarks.get(&line).filter(|caption| !caption.is_empty()) {
+                if let Some(caption) = bookmarks
+                    .get(&line)
+                    .filter(|caption| show_bookmark_annotations && !caption.is_empty())
+                {
                     out.push(EditorRow::Bookmark {
                         line,
                         caption: caption.to_string(),
@@ -430,7 +437,10 @@ fn fill_rows(
         }
         while seg < layout.height() && out.len() < rows {
             if seg == 0 {
-                if let Some(caption) = bookmarks.get(&line).filter(|caption| !caption.is_empty()) {
+                if let Some(caption) = bookmarks
+                    .get(&line)
+                    .filter(|caption| show_bookmark_annotations && !caption.is_empty())
+                {
                     out.push(EditorRow::Bookmark {
                         line,
                         caption: caption.to_string(),
@@ -455,15 +465,20 @@ fn fill_rows(
     out
 }
 
-pub fn rows_for_document(doc: &Document, cache: &mut LayoutCache, rows: usize) -> Vec<EditorRow> {
+pub fn rows_for_document(
+    doc: &Document,
+    cache: &mut LayoutCache,
+    rows: usize,
+    show_bookmark_annotations: bool,
+) -> Vec<EditorRow> {
     fill_rows(
         cache,
         doc.storage(),
         doc.scroll_top(),
         doc.scroll_row(),
         rows,
-        doc.line_count(),
         doc.bookmarks(),
+        show_bookmark_annotations,
     )
 }
 
@@ -602,19 +617,22 @@ impl EditorRenderer<'_> {
                     else {
                         break;
                     };
-                    let caption_rows = self
-                        .doc
-                        .bookmarks()
-                        .range(top..=cur_line)
-                        .filter(|(_, caption)| !caption.is_empty())
-                        .count()
-                        .saturating_sub(usize::from(
-                            sub > 0
-                                && self
-                                    .doc
-                                    .bookmark_caption(top)
-                                    .is_some_and(|caption| !caption.is_empty()),
-                        ));
+                    let caption_rows = if self.bookmark_highlight {
+                        self.doc
+                            .bookmarks()
+                            .range(top..=cur_line)
+                            .filter(|(_, caption)| !caption.is_empty())
+                            .count()
+                            .saturating_sub(usize::from(
+                                sub > 0
+                                    && self
+                                        .doc
+                                        .bookmark_caption(top)
+                                        .is_some_and(|caption| !caption.is_empty()),
+                            ))
+                    } else {
+                        0
+                    };
                     let cursor_row = base_row + caption_rows as isize;
                     if cursor_row < lo {
                         let (t, s) = cache.shift(storage, top, sub, -1);
@@ -642,8 +660,8 @@ impl EditorRenderer<'_> {
                 top,
                 sub,
                 rows,
-                line_count,
                 self.doc.bookmarks(),
+                self.bookmark_highlight,
             );
 
             // --- horizontal scroll -------------------------------------------

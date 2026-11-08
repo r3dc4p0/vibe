@@ -7,6 +7,10 @@ use unicode_width::UnicodeWidthChar;
 use super::App;
 
 impl App {
+    pub(crate) fn show_bookmark_annotations(&self) -> bool {
+        !self.config.editor.bookmark_gutter_highlight_requires_panel || self.ui.bookmarks.open
+    }
+
     pub(crate) fn toggle_bookmark_panel(&mut self) {
         self.ui.bookmarks.open = !self.ui.bookmarks.open;
         self.ui.bookmarks.focused = false;
@@ -270,6 +274,7 @@ impl Document {
         config: &crate::config::Config,
         text_width: usize,
         visual_row: usize,
+        show_bookmark_annotations: bool,
     ) -> Option<crate::ui::editor::EditorRow> {
         let wrap_width = config
             .editor
@@ -277,7 +282,12 @@ impl Document {
             .then_some(text_width)
             .filter(|w| *w > 0);
         let mut cache = crate::buffer::LayoutCache::new(wrap_width, config.tab_width());
-        let rows = crate::ui::editor::rows_for_document(self, &mut cache, visual_row + 1);
+        let rows = crate::ui::editor::rows_for_document(
+            self,
+            &mut cache,
+            visual_row + 1,
+            show_bookmark_annotations,
+        );
         rows.get(visual_row).cloned()
     }
 
@@ -286,8 +296,9 @@ impl Document {
         config: &crate::config::Config,
         text_width: usize,
         visual_row: usize,
+        show_bookmark_annotations: bool,
     ) -> Option<usize> {
-        self.editor_row_for_display_row(config, text_width, visual_row)
+        self.editor_row_for_display_row(config, text_width, visual_row, show_bookmark_annotations)
             .and_then(|row| row.line())
     }
 }

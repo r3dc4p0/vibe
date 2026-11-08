@@ -134,9 +134,10 @@ Creating a bookmark opens the panel automatically.
 
 New bookmarks receive a default caption (`bookmark 1`, `bookmark 2`, …); typing
 in the selected caption replaces that default. By default, gutter highlights
-remain highlighted whether the panel is open or closed. Set
+remain highlighted and captions remain visible whether the panel is open or
+closed. Set
 `editor.bookmark_gutter_highlight_requires_panel = true` in `config.toml` to
-show gutter and caption highlights only while the bookmark panel is open.
+hide gutter highlights and editor captions while the bookmark panel is closed.
 
 The wheel moves the view, never the cursor: it can travel the whole buffer and
 leaves the caret where it was, even off screen. While the caret is out of view
