@@ -14,6 +14,11 @@ fn click(app: &mut vibe::app::App, column: u16, row: u16) {
     }));
 }
 
+fn double_click(app: &mut vibe::app::App, column: u16, row: u16) {
+    click(app, column, row);
+    click(app, column, row);
+}
+
 fn wheel_down(app: &mut vibe::app::App, column: u16, row: u16) {
     app.handle_event(Event::Mouse(MouseEvent {
         kind: MouseEventKind::ScrollDown,
@@ -34,6 +39,8 @@ fn gutter_click_toggles_and_highlights_bookmark_rectangle() {
         vibe::ui::editor::gutter_width(app.active_doc().unwrap().line_count(), &app.config);
 
     click(&mut app, area.x + gutter.saturating_sub(1), area.y + 1);
+    assert!(!app.active_doc().unwrap().bookmarks().contains_key(&1));
+    click(&mut app, area.x + gutter.saturating_sub(1), area.y + 1);
     assert!(app.active_doc().unwrap().bookmarks().contains_key(&1));
 
     let theme = vibe::ui::theme_of(&app).clone();
@@ -44,7 +51,7 @@ fn gutter_click_toggles_and_highlights_bookmark_rectangle() {
     let cell = &terminal.backend().buffer()[(area.x + 1, area.y + 1)];
     assert_eq!(cell.bg, theme.mark);
 
-    click(&mut app, area.x + gutter.saturating_sub(1), area.y + 1);
+    double_click(&mut app, area.x + gutter.saturating_sub(1), area.y + 1);
     assert!(!app.active_doc().unwrap().bookmarks().contains_key(&1));
 }
 
@@ -57,7 +64,7 @@ fn bookmark_caption_has_a_phantom_row_and_is_editable_from_panel() {
     let area = app.editor_area();
     let gutter =
         vibe::ui::editor::gutter_width(app.active_doc().unwrap().line_count(), &app.config);
-    click(&mut app, area.x + gutter.saturating_sub(1), area.y + 1);
+    double_click(&mut app, area.x + gutter.saturating_sub(1), area.y + 1);
 
     press(
         &mut app,

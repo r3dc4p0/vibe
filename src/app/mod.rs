@@ -119,6 +119,9 @@ pub struct App {
     last_click: Option<(Instant, u16, u16)>,
     /// Clicks in the current run: 1 place, 2 word, 3 line.
     click_count: u8,
+    /// Clicks on the same line-number gutter rectangle.
+    last_gutter_click: Option<(Instant, usize, u16, u16)>,
+    gutter_click_count: u8,
     /// Where a drag started, so the selection grows from the press point.
     drag_anchor: Option<usize>,
     /// Editor area from the last frame, for mouse coordinate mapping.
@@ -250,6 +253,8 @@ impl App {
             brackets_cache: None,
             last_click: None,
             click_count: 0,
+            last_gutter_click: None,
+            gutter_click_count: 0,
             drag_anchor: None,
             last_editor_area: Rect::default(),
             last_tabs_area: Rect::default(),
@@ -629,7 +634,11 @@ impl App {
                             visual_row,
                         );
                         if let Some(line) = line {
-                            self.toggle_active_bookmark(line);
+                            if self.gutter_click_count(line, mouse.column, mouse.row) == 2 {
+                                self.toggle_active_bookmark(line);
+                                self.last_gutter_click = None;
+                                self.gutter_click_count = 0;
+                            }
                         }
                         return;
                     }
@@ -793,22 +802,8 @@ impl App {
     /// Handle a left press on the text: place the cursor, or select a word on
     /// the second click and a line on the third.
     fn click_at(&mut self, column: u16, row: u16) {
-        let now = Instant::now();
-        let repeated = self
-            .last_click
-            .map(|(t, x, y)| {
-                now.duration_since(t) < Duration::from_millis(400)
-                    && x.abs_diff(column) <= 1
-                    && y == row
-            })
-            .unwrap_or(false);
-        // Cycle 1 -> 2 -> 3 -> 1 so a fourth click starts over.
-        self.click_count = if repeated {
-            self.click_count % 3 + 1
-        } else {
-            1
-        };
-        self.last_click = Some((now, column, row));
+        self.click_count =
+            Self::next_click_count(&mut self.last_click, self.click_count, column, row);
 
         let Some(pos) = self.buffer_position_at(column, row) else {
             self.drag_anchor = None;
@@ -831,6 +826,45 @@ impl App {
         }
         // A drag that follows this press selects from where it landed.
         self.drag_anchor = Some(pos);
+    }
+
+    fn gutter_click_count(&mut self, line: usize, column: u16, row: u16) -> u8 {
+        let now = Instant::now();
+        let repeated = self
+            .last_gutter_click
+            .map(|(time, last_line, last_column, last_row)| {
+                now.duration_since(time) < Duration::from_millis(400)
+                    && last_line == line
+                    && last_column.abs_diff(column) <= 1
+                    && last_row == row
+            })
+            .unwrap_or(false);
+        self.gutter_click_count = if repeated {
+            self.gutter_click_count % 3 + 1
+        } else {
+            1
+        };
+        self.last_gutter_click = Some((now, line, column, row));
+        self.gutter_click_count
+    }
+
+    fn next_click_count(
+        last_click: &mut Option<(Instant, u16, u16)>,
+        click_count: u8,
+        column: u16,
+        row: u16,
+    ) -> u8 {
+        let now = Instant::now();
+        let repeated = last_click
+            .map(|(time, last_column, last_row)| {
+                now.duration_since(time) < Duration::from_millis(400)
+                    && last_column.abs_diff(column) <= 1
+                    && last_row == row
+            })
+            .unwrap_or(false);
+        let count = if repeated { click_count % 3 + 1 } else { 1 };
+        *last_click = Some((now, column, row));
+        count
     }
 
     /// Extend the selection to the pointer, scrolling when it leaves the text.

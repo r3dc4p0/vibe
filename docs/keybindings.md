@@ -106,7 +106,7 @@ section.
 | Gesture | Action |
 | --- | --- |
 | Click | Place the cursor |
-| Click a line-number gutter row | Toggle and highlight that line's bookmark |
+| Double-click a line-number gutter row | Toggle and highlight that line's bookmark |
 | Drag | Select from the press point; the view autoscrolls when the pointer moves above or below the text, and an upwards drag leaves the cursor on the upper edge |
 | Double-click | Select the word |
 | Triple-click | Select the line |
@@ -118,7 +118,7 @@ section.
 
 ## Bookmarks
 
-Click the line-number gutter to add or remove a bookmark. `Ctrl+Shift+B` opens
+Double-click the line-number gutter to add or remove a bookmark. `Ctrl+Shift+B` opens
 or closes the right-hand bookmark panel; it lists bookmarks from open buffers,
 grouped by file. `Ctrl+Alt+B` moves focus between the editor and the panel while
 the panel is open. In the panel, the arrow keys move through bookmarks, Enter
