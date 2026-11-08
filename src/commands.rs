@@ -542,7 +542,7 @@ mod tests {
     fn all_variants_are_listed() {
         // Guards against forgetting to add a new variant to `ALL`, which would
         // make it invisible to the palette and the keymap builder.
-    assert_eq!(Command::ALL.len(), 67);
+        assert_eq!(Command::ALL.len(), 67);
     }
 
     #[test]

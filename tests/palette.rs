@@ -239,8 +239,8 @@ fn the_footer_counts_commands_not_headings() {
     let mut app = palette(&scratch);
     let rows = screen(&mut app, 100, 40);
     assert!(
-    rows.iter().any(|r| r.contains("1/67")),
-    "the first of sixty-seven commands:\n{}",
+        rows.iter().any(|r| r.contains("1/67")),
+        "the first of sixty-seven commands:\n{}",
         rows.join("\n")
     );
 
@@ -249,8 +249,8 @@ fn the_footer_counts_commands_not_headings() {
     }
     let rows = screen(&mut app, 100, 40);
     assert!(
-    rows.iter().any(|r| r.contains("67/67")),
-    "and the last is still sixty-seven, with the headings uncounted"
+        rows.iter().any(|r| r.contains("67/67")),
+        "and the last is still sixty-seven, with the headings uncounted"
     );
 }
 
