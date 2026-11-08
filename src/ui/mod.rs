@@ -396,6 +396,24 @@ impl Overlay {
     pub fn captures_input(&self) -> bool {
         !self.is_none()
     }
+
+    /// True for the overlays that are a *text field* rather than a panel.
+    ///
+    /// A panel (help, the key report) is read-only and ignores keys it does not
+    /// use; a field swallows everything, which is why a shortcut aimed at the
+    /// document has to be answered rather than quietly dropped there.
+    pub fn holds_text(&self) -> bool {
+        matches!(
+            self,
+            Overlay::Palette(_)
+                | Overlay::Find(_)
+                | Overlay::Replace(_)
+                | Overlay::GotoLine(_)
+                | Overlay::Indent(_)
+                | Overlay::Open(_)
+                | Overlay::SaveAs(_)
+        )
+    }
 }
 
 /// A clickable stretch of the hint bar.

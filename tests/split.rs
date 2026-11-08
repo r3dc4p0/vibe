@@ -835,3 +835,47 @@ fn a_big_file_opened_into_a_split_keeps_both_panes() {
     );
     assert!(app.buffers[0].path().is_none(), "the scratch was kept");
 }
+
+#[test]
+fn a_prompt_keeps_the_keyboard_away_from_both_panes() {
+    // A prompt is modal for the whole application, not for the pane that opened
+    // it: there is no per-pane input mode to restore, because nothing can move
+    // the focus or edit text while an overlay is up. That is what keeps a typed
+    // query out of the document and a pane shortcut out of the pane layout —
+    // the two ways this could otherwise go wrong.
+    let scratch = Scratch::new();
+    let path = scratch.file("notes.txt", "alpha\nbeta\n");
+    let mut app = editor(scratch.path());
+    open(&mut app, &path);
+    let _ = screen(&mut app, 80, 24);
+    split(&mut app);
+    let _ = screen(&mut app, 80, 24);
+    assert_eq!(app.pane_count(), 2);
+    assert_eq!(app.active_pane, 1, "the split took the focus");
+
+    // A pane command with no prompt open does move the focus.
+    let focus = KeyModifiers::CONTROL | KeyModifiers::ALT;
+    press(&mut app, KeyCode::Left, focus);
+    assert_eq!(app.active_pane, 0);
+    press(&mut app, KeyCode::Right, focus);
+    assert_eq!(app.active_pane, 1);
+
+    // With the find bar up, the same key belongs to the text field.
+    ctrl(&mut app, 'f');
+    ctrl(&mut app, 'u');
+    type_str(&mut app, "alp");
+    press(&mut app, KeyCode::Left, focus);
+    assert_eq!(
+        app.active_pane, 1,
+        "a pane shortcut cannot move the focus out from under a prompt"
+    );
+    assert_eq!(text(&app), "alpha\nbeta\n", "and nothing was typed into it");
+
+    // Dismissing the prompt leaves the pane and the document as they were, so
+    // typing goes where the focus says it does.
+    plain(&mut app, KeyCode::Esc);
+    ctrl(&mut app, KeyCode::End);
+    type_str(&mut app, "!");
+    assert_eq!(text(&app), "alpha\nbeta\n!");
+    assert_eq!(app.active_pane, 1);
+}

@@ -424,6 +424,11 @@ pub fn draw_status(buf: &mut Buffer, area: Rect, app: &App) {
         theme.statusbar_fg,
     );
     if app.pane_count() > 1 {
+        // Read from `app.active_pane` here rather than from a snapshot taken
+        // earlier in the frame: the panes and this segment are painted in one
+        // pass from one `App`, so they cannot disagree. `App::run` draws before
+        // it handles an event and never in between, so there is no frame in
+        // which the bar could show the focus the last command just left.
         add_segment(
             &mut left,
             sep,

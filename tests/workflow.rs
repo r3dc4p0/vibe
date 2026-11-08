@@ -534,3 +534,55 @@ fn quitting_refuses_to_discard_when_saving_fails() {
     assert_eq!(text(&app), "keep me\n!", "the work is still in the buffer");
     assert_eq!(app.last_level(), Some(vibe::ui::Level::Warn));
 }
+
+#[test]
+fn save_from_inside_a_prompt_says_why_nothing_happened() {
+    // A prompt owns the keyboard, so Ctrl+S cannot reach the document. Dropping
+    // it without a word left the user with a search bar, a typed query and no
+    // save — and no way to tell whether the save had happened.
+    let scratch = Scratch::new();
+    let path = scratch.file("notes.txt", "alpha\n");
+    let mut app = editor(scratch.path());
+    open(&mut app, &path);
+    type_str(&mut app, "!");
+    assert!(modified(&app), "there is something worth saving");
+
+    ctrl(&mut app, 'f');
+    ctrl(&mut app, 'u'); // clear the word Ctrl+F pre-filled
+    type_str(&mut app, "alp");
+
+    ctrl(&mut app, 's');
+
+    let prompt = match &app.ui.overlay {
+        vibe::ui::Overlay::Find(f) => Some(f.input.value().to_string()),
+        _ => None,
+    };
+    assert_eq!(
+        prompt.as_deref(),
+        Some("alp"),
+        "the prompt stays open, with what was typed in it"
+    );
+    assert_eq!(
+        app.last_message().unwrap(),
+        "Save is unavailable while a prompt is open — press Esc first"
+    );
+    assert_eq!(
+        app.last_level(),
+        Some(vibe::ui::Level::Warn),
+        "and it reads as a refusal, not as success"
+    );
+    assert!(
+        modified(&app),
+        "nothing was written: the buffer is still unsaved"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "alpha\n",
+        "and the file on disk is untouched"
+    );
+
+    // The prompt is still usable: Esc closes it and the save then works.
+    plain(&mut app, KeyCode::Esc);
+    ctrl(&mut app, 's');
+    assert!(!modified(&app), "save works again once the prompt is gone");
+}
