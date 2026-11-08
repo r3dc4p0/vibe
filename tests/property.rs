@@ -139,11 +139,11 @@ proptest! {
     fn search_ranges_are_valid(text in any_text(), needle in any_text()) {
         let doc = doc_with(&text);
         let query = Query::literal(&needle);
-        let ranges = find_all(doc.storage(), &query, 1_000).expect("literal search never fails");
+        let scan = find_all(doc.storage(), &query, 1_000).expect("literal search never fails");
         let haystack = doc.text();
 
         let mut previous_end = 0usize;
-        for range in &ranges {
+        for range in &scan.ranges {
             prop_assert!(range.start <= range.end);
             prop_assert!(range.end <= doc.len_chars());
             prop_assert!(range.start >= previous_end, "ranges must not overlap");

@@ -400,3 +400,53 @@ fn document_statistics_are_reported() {
         "the counts are shown: {rows:?}"
     );
 }
+
+// ------------------------------------------------------------ regex replace
+
+/// Open the replace bar on `haystack` and run a regex replace-all.
+///
+/// `case_sensitive` is toggled with Alt+C, so the caller can pick which way the
+/// search reads the text.
+fn regex_replace_all(
+    haystack: &str,
+    pattern: &str,
+    replacement: &str,
+    case_sensitive: bool,
+) -> (vibe::app::App, Scratch) {
+    let scratch = Scratch::new();
+    let path = scratch.file("text.txt", haystack);
+    let mut app = editor(scratch.path());
+    open(&mut app, &path);
+
+    ctrl(&mut app, 'h');
+    ctrl(&mut app, 'u'); // clear the word the bar pre-filled
+    type_str(&mut app, pattern);
+    press(&mut app, KeyCode::Char('r'), KeyModifiers::ALT); // regex mode
+    if case_sensitive {
+        press(&mut app, KeyCode::Char('c'), KeyModifiers::ALT);
+    }
+    plain(&mut app, KeyCode::Tab); // move to the replacement field
+    type_str(&mut app, replacement);
+    press(&mut app, KeyCode::Enter, KeyModifiers::ALT); // replace all
+    (app, scratch)
+}
+
+#[test]
+fn a_case_insensitive_regex_replace_expands_its_backreference() {
+    // The expansion rebuilt the pattern with `multi_line` alone, so a
+    // case-insensitive search re-ran a case-sensitive pattern, found no
+    // captures, and inserted the replacement text verbatim: `<$1>`.
+    let (app, _scratch) = regex_replace_all("HELLO\n", "(hello)", "<$1>", false);
+    assert_eq!(text(&app), "<HELLO>\n");
+    assert_eq!(app.last_message().unwrap(), "Replaced 1 occurrence(s)");
+}
+
+#[test]
+fn a_case_sensitive_regex_replace_still_expands_its_backreference() {
+    let (app, _scratch) = regex_replace_all("HELLO hello\n", "(hello)", "<$1>", true);
+    assert_eq!(
+        text(&app),
+        "HELLO <hello>\n",
+        "only the lower-case match is replaced"
+    );
+}

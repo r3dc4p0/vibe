@@ -175,3 +175,80 @@ fn replace_all_does_not_stop_at_the_live_cap() {
         "and the tail of the file is actually rewritten"
     );
 }
+
+/// A file whose `foo` occurrences are almost all sub-word hits, followed by one
+/// bare match at the very end.
+///
+/// `"foobar "` is seven characters, so the bare `foo` starts at `SUB_WORD * 7`.
+fn whole_word_fixture(sub_word: usize) -> (Scratch, std::path::PathBuf, usize) {
+    let scratch = Scratch::new();
+    let body = format!("{}foo", "foobar ".repeat(sub_word));
+    let path = scratch.file("words.txt", &body);
+    (scratch, path, sub_word * 7)
+}
+
+#[test]
+fn whole_word_finds_a_bare_match_past_a_run_of_sub_word_hits() {
+    // More sub-word hits than the live scan collects. Taking the budget before
+    // the whole-word filter meant the first `LIVE_MATCHES` raw hits were all
+    // `foobar`, every one of them was filtered out, and the bar said "no
+    // matches" while a bare `foo` sat at the end of the file.
+    let (scratch, path, bare) = whole_word_fixture(LIVE_MATCHES + 5_000);
+    let mut app = editor(scratch.path());
+    open(&mut app, &path);
+    ctrl(&mut app, KeyCode::Home);
+
+    ctrl(&mut app, 'f');
+    ctrl(&mut app, 'u');
+    type_str(&mut app, "foo");
+    press(&mut app, KeyCode::Char('w'), KeyModifiers::ALT); // whole word
+
+    assert_eq!(
+        app.search.matches.len(),
+        1,
+        "the only whole-word match is the bare `foo`, not the run of `foobar`"
+    );
+    assert_eq!(app.search.ranges().len(), 1, "only the bare match counts");
+    assert_eq!(app.search.ranges()[0], bare..bare + 3);
+    assert!(
+        !app.search.matches.truncated,
+        "the raw scan reached the end of the file, so the answer is final"
+    );
+}
+
+#[test]
+fn a_whole_word_scan_that_ran_out_reports_more_and_finds_it_on_commit() {
+    // Enough sub-word hits that even the overshooting raw scan is cut short, so
+    // the bare match is genuinely out of reach for the live scan. The list is
+    // empty, but it must not claim to be the answer — the counter has to keep
+    // advertising a scan so committing one can find the match.
+    let (scratch, path, bare) = whole_word_fixture(LIVE_MATCHES * 5);
+    let mut app = editor(scratch.path());
+    open(&mut app, &path);
+    ctrl(&mut app, KeyCode::Home);
+
+    ctrl(&mut app, 'f');
+    ctrl(&mut app, 'u');
+    type_str(&mut app, "foo");
+    press(&mut app, KeyCode::Char('w'), KeyModifiers::ALT);
+
+    assert!(
+        app.search.matches.is_empty(),
+        "the live scan cannot see past the sub-word hits"
+    );
+    assert!(
+        app.search.matches.truncated,
+        "but it knows it stopped early"
+    );
+
+    plain(&mut app, KeyCode::Enter);
+    wait_for_search(&mut app);
+
+    assert_eq!(
+        app.search.ranges().len(),
+        1,
+        "committing the search finds the bare match"
+    );
+    assert_eq!(app.search.ranges()[0], bare..bare + 3);
+    assert!(!app.search.matches.truncated, "and the count is final");
+}

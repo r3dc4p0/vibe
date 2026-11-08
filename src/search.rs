@@ -66,6 +66,19 @@ impl Query {
     }
 }
 
+/// What one scan produced.
+///
+/// `truncated` is the important half: it says "there may be more matches in the
+/// file", which is what the committed full scan is started for. It is *not* the
+/// same thing as "the list is full" — a whole-word scan can throw away most of
+/// its hits and still have text it never looked at.
+#[derive(Debug, Clone, Default)]
+pub struct Scan {
+    pub ranges: Vec<Range<usize>>,
+    /// True when the scan stopped before the end of the document.
+    pub truncated: bool,
+}
+
 /// A completed search.
 #[derive(Debug, Clone, Default)]
 pub struct MatchSet {
@@ -154,52 +167,69 @@ impl Source for Frozen<'_> {
 }
 
 /// Find every match of `query` in `storage`.
-pub fn find_all(
-    storage: &dyn TextStorage,
-    query: &Query,
-    limit: usize,
-) -> Result<Vec<Range<usize>>> {
+///
+/// The returned [`Scan`] also says whether the scan reached the end of the
+/// document, so a caller can tell "these are all of them" from "these are as
+/// many as the budget allowed".
+pub fn find_all(storage: &dyn TextStorage, query: &Query, limit: usize) -> Result<Scan> {
     find_in(&Live(storage), query, limit)
 }
 
 /// Find every match of `query` in a frozen snapshot.
 ///
 /// Used by the committed-search worker, which cannot borrow the document.
-pub fn find_all_in_snapshot(
-    snapshot: &Snapshot,
-    query: &Query,
-    limit: usize,
-) -> Result<Vec<Range<usize>>> {
+pub fn find_all_in_snapshot(snapshot: &Snapshot, query: &Query, limit: usize) -> Result<Scan> {
     find_in(&Frozen(snapshot), query, limit)
 }
 
-fn find_in(source: &dyn Source, query: &Query, limit: usize) -> Result<Vec<Range<usize>>> {
+fn find_in(source: &dyn Source, query: &Query, limit: usize) -> Result<Scan> {
     if query.is_empty() {
-        return Ok(Vec::new());
+        return Ok(Scan::default());
     }
-    let ranges = if query.regex {
-        find_regex(source, query, limit)?
-    } else {
-        // Whole-word filtering throws some hits away after the scan, so the
-        // scan has to overshoot to still fill `limit`. Without the filter the
-        // overshoot is pure waste: it quadrupled the cost of every keystroke.
-        let scan_limit = if query.whole_word {
-            limit.saturating_mul(4)
-        } else {
-            limit
-        };
-        let starts = source.find_literal(&query.text, query.case_sensitive, scan_limit);
-        let len = query.text.chars().count();
-        starts.into_iter().map(|s| s..s + len).take(limit).collect()
-    };
+    if query.regex {
+        return find_regex(source, query, limit);
+    }
 
-    if !query.whole_word {
-        return Ok(ranges);
+    // Whole-word filtering throws some hits away after the scan, so the scan
+    // has to overshoot to still fill `limit`. Without the filter the overshoot
+    // is pure waste: it quadrupled the cost of every keystroke.
+    let scan_limit = if query.whole_word {
+        limit.saturating_mul(4)
+    } else {
+        limit
+    };
+    let starts = source.find_literal(&query.text, query.case_sensitive, scan_limit);
+    // `find_literal` stops at its own budget, so filling it means there is text
+    // behind the window that was never looked at.
+    let raw_capped = scan_limit > 0 && starts.len() >= scan_limit;
+    let len = query.text.chars().count();
+
+    // The filter runs *before* the budget is applied. Taking `limit` raw starts
+    // first and filtering afterwards meant that a file whose first `limit` hits
+    // are all sub-word hits — `foo` in a run of `foobar` — reported "no
+    // matches" while bare matches sat further down, and nothing downstream
+    // could notice: the list looked short rather than capped, so no committed
+    // scan ever ran to correct it.
+    let mut ranges = Vec::new();
+    let mut overflowed = false;
+    for start in starts {
+        let range = start..start + len;
+        if query.whole_word && !is_whole_word(source, &range) {
+            continue;
+        }
+        if ranges.len() == limit {
+            overflowed = true;
+            break;
+        }
+        ranges.push(range);
     }
-    Ok(ranges
-        .into_iter()
-        .filter(|r| is_whole_word(source, r))
-        .collect())
+
+    Ok(Scan {
+        ranges,
+        // Either the raw scan was cut short, or the filter kept more hits than
+        // the budget allows. Both mean "there is more in this file".
+        truncated: raw_capped || overflowed,
+    })
 }
 
 fn is_whole_word(source: &dyn Source, range: &Range<usize>) -> bool {
@@ -219,7 +249,7 @@ fn is_whole_word(source: &dyn Source, range: &Range<usize>) -> bool {
     true
 }
 
-fn find_regex(source: &dyn Source, query: &Query, limit: usize) -> Result<Vec<Range<usize>>> {
+fn find_regex(source: &dyn Source, query: &Query, limit: usize) -> Result<Scan> {
     let re = RegexBuilder::new(&query.text)
         .case_insensitive(!query.case_sensitive)
         .multi_line(true)
@@ -230,12 +260,10 @@ fn find_regex(source: &dyn Source, query: &Query, limit: usize) -> Result<Vec<Ra
     // Byte offsets from `regex` must become character offsets. One pass over the
     // string keeps this linear even for thousands of matches.
     let mut out = Vec::new();
+    let mut truncated = false;
     let mut byte_cursor = 0usize;
     let mut char_cursor = 0usize;
     for m in re.find_iter(&text) {
-        if out.len() >= limit {
-            break;
-        }
         // Advance the character cursor to the match start.
         while byte_cursor < m.start() {
             byte_cursor += char_len_at(&text, byte_cursor);
@@ -248,11 +276,26 @@ fn find_regex(source: &dyn Source, query: &Query, limit: usize) -> Result<Vec<Ra
             b += char_len_at(&text, b);
             end_char += 1;
         }
-        if end_char > start {
-            out.push(start..end_char);
+        if end_char == start {
+            continue;
         }
+        let range = start..end_char;
+        // Same order as the literal path: the whole-word filter runs before the
+        // budget, so a screenful of sub-word hits cannot hide the bare matches
+        // behind them.
+        if query.whole_word && !is_whole_word(source, &range) {
+            continue;
+        }
+        if out.len() == limit {
+            truncated = true;
+            break;
+        }
+        out.push(range);
     }
-    Ok(out)
+    Ok(Scan {
+        ranges: out,
+        truncated,
+    })
 }
 
 fn char_len_at(text: &str, byte: usize) -> usize {
@@ -270,20 +313,30 @@ fn first_line(s: &str) -> String {
 /// Expand `$1` / `$name` style backreferences in a replacement string.
 ///
 /// Literal mode treats the replacement verbatim; regex mode expands captures.
+/// `query` is the search the match came from, and it has to be the whole query
+/// rather than just its pattern: the capture groups are re-resolved by running
+/// the pattern again, so the flags have to be the ones the search used. A
+/// case-insensitive search expanded with a case-sensitive pattern finds no
+/// captures at all and inserts `$1` verbatim.
 pub fn expand_replacement(
     replacement: &str,
     haystack: &str,
     range: &Range<usize>,
-    regex: Option<&str>,
+    query: Option<&Query>,
 ) -> String {
-    if regex.is_none() || !replacement.contains('$') {
-        return replacement.to_string();
-    }
-    // Re-run the pattern against the matched slice to resolve captures.
-    let Some(pattern) = regex else {
+    let Some(query) = query else {
         return replacement.to_string();
     };
-    let Ok(re) = RegexBuilder::new(pattern).multi_line(true).build() else {
+    if !replacement.contains('$') {
+        return replacement.to_string();
+    }
+    // Re-run the pattern against the matched slice to resolve captures. Mirrors
+    // `find_regex`, flag for flag.
+    let Ok(re) = RegexBuilder::new(&query.text)
+        .case_insensitive(!query.case_sensitive)
+        .multi_line(true)
+        .build()
+    else {
         return replacement.to_string();
     };
     let slice: String = haystack
@@ -330,6 +383,33 @@ pub fn expand_replacement(
     out
 }
 
+/// What a committed scan was started for.
+///
+/// A worker thread cannot borrow the document, so the result comes back to a
+/// state that may have moved on. The ticket is what "moved on" is measured
+/// against: the search generation, the document, and the document's revision.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Ticket {
+    /// Search generation at the moment the job was started.
+    pub generation: u64,
+    /// [`Document::id`] of the file that was scanned.
+    pub doc: usize,
+    /// [`Document::revision`] of that file at the moment the job was started.
+    pub revision: u64,
+}
+
+impl Ticket {
+    /// True when the scan this ticket was issued for still describes `doc`.
+    ///
+    /// Both halves matter. The id catches a result arriving after the user
+    /// switched tabs — revision numbers are per-document, so two files can both
+    /// be at revision 7. The revision catches an edit made while the scan ran,
+    /// which leaves every position in the result pointing at the wrong text.
+    pub fn describes(&self, doc: &Document) -> bool {
+        self.doc == doc.id() && self.revision == doc.revision()
+    }
+}
+
 /// Live search state owned by the application.
 #[derive(Debug, Default)]
 pub struct SearchState {
@@ -337,6 +417,12 @@ pub struct SearchState {
     pub matches: MatchSet,
     /// Document revision the matches were computed from.
     scanned_revision: u64,
+    /// Document the matches were computed from.
+    ///
+    /// Revisions are per-document, so the revision alone cannot tell "the same
+    /// file, unchanged" from "a different file that happens to be at the same
+    /// revision" — which is exactly the case when the user switches tabs.
+    scanned_doc: Option<usize>,
     /// Query the matches were computed from.
     scanned_query: Query,
     pub active: bool,
@@ -375,6 +461,7 @@ impl SearchState {
             return false;
         }
         let unchanged = self.scanned_revision == doc.revision()
+            && self.scanned_doc == Some(doc.id())
             && self.scanned_query == self.query
             && !self.matches.ranges.is_empty();
         if unchanged {
@@ -392,6 +479,7 @@ impl SearchState {
     /// Force a rescan with an explicit match budget.
     pub fn rescan_with(&mut self, doc: &Document, limit: usize) {
         self.scanned_revision = doc.revision();
+        self.scanned_doc = Some(doc.id());
         self.scanned_query = self.query.clone();
         self.generation += 1;
         self.searching = false;
@@ -404,10 +492,12 @@ impl SearchState {
         }
 
         match find_all(doc.storage(), &self.query, limit) {
-            Ok(ranges) => {
-                let truncated = ranges.len() >= limit;
+            Ok(scan) => {
+                // The scan decides this, not the list length: a whole-word scan
+                // can hand back a short list that is still incomplete.
+                let truncated = scan.truncated;
                 self.matches = MatchSet {
-                    ranges,
+                    ranges: scan.ranges,
                     current: None,
                     truncated,
                     error: None,
@@ -425,15 +515,19 @@ impl SearchState {
         }
     }
 
-    /// Generation to tag a committed scan with, or `None` when one is already
-    /// running, when the query has already had its full scan, or when there is
-    /// nothing left to find.
-    pub fn start_complete(&mut self) -> Option<u64> {
+    /// Tag to hand a committed scan, or `None` when one is already running,
+    /// when the query has already had its full scan, or when there is nothing
+    /// left to find.
+    pub fn start_complete(&mut self, doc: &Document) -> Option<Ticket> {
         if !self.matches.truncated || self.searching || self.completed || self.query.is_empty() {
             return None;
         }
         self.searching = true;
-        Some(self.generation)
+        Some(Ticket {
+            generation: self.generation,
+            doc: doc.id(),
+            revision: doc.revision(),
+        })
     }
 
     /// Install the result of a committed scan.
@@ -441,27 +535,32 @@ impl SearchState {
     /// Returns `false` when the result is stale. The focused match is preserved
     /// by identity: the full list is a superset of the truncated one in the same
     /// order, so the highlight does not jump when the count grows.
-    pub fn install(
-        &mut self,
-        ranges: Vec<Range<usize>>,
-        truncated: bool,
-        generation: u64,
-        cursor: usize,
-    ) -> bool {
-        if generation != self.generation {
+    ///
+    /// "Stale" is all three halves of the ticket: a newer rescan bumped the
+    /// generation, the matches on screen belong to a different document, or the
+    /// document has been edited since the scan started. Comparing only the
+    /// generation is not enough — a result for the file that was open when the
+    /// job started would otherwise land in the file the user is looking at now,
+    /// and revision numbers are per-document, so "same revision" does not mean
+    /// "same file".
+    pub fn install(&mut self, scan: Scan, ticket: Ticket, doc: &Document) -> bool {
+        if ticket.generation != self.generation
+            || self.scanned_doc != Some(ticket.doc)
+            || !ticket.describes(doc)
+        {
             return false;
         }
         let focused = self.current();
         self.matches = MatchSet {
-            ranges,
+            ranges: scan.ranges,
             current: None,
-            truncated,
+            truncated: scan.truncated,
             error: None,
         };
         self.matches.current = focused
             .and_then(|r| self.matches.ranges.iter().position(|x| *x == r))
             .or_else(|| {
-                self.select_nearest(cursor);
+                self.select_nearest(doc.cursor());
                 self.matches.current
             });
         self.searching = false;
@@ -478,8 +577,8 @@ impl SearchState {
     ///
     /// Without this the "still searching" marker would outlive the job it
     /// describes, because nothing else knows the job is gone.
-    pub fn abandon(&mut self, generation: u64) {
-        if generation == self.generation {
+    pub fn abandon(&mut self, ticket: Ticket) {
+        if ticket.generation == self.generation {
             self.searching = false;
         }
     }
@@ -598,6 +697,7 @@ impl SearchState {
         self.matches = MatchSet::default();
         self.scanned_query = Query::default();
         self.scanned_revision = 0;
+        self.scanned_doc = None;
         self.origin = 0;
         // Invalidate any committed scan still in flight.
         self.generation += 1;
@@ -625,12 +725,16 @@ mod tests {
         Document::from_text(text, None)
     }
 
+    /// The matches only — most tests do not care whether the scan was capped.
+    fn found(d: &Document, q: &Query, limit: usize) -> Vec<Range<usize>> {
+        find_all(d.storage(), q, limit).unwrap().ranges
+    }
+
     #[test]
     fn finds_literal_matches() {
         let d = doc("one two one two");
         let q = Query::literal("one");
-        let r = find_all(d.storage(), &q, 100).unwrap();
-        assert_eq!(r, vec![0..3, 8..11]);
+        assert_eq!(found(&d, &q, 100), vec![0..3, 8..11]);
     }
 
     #[test]
@@ -638,9 +742,9 @@ mod tests {
         let d = doc("One ONE one");
         let mut q = Query::literal("one");
         q.case_sensitive = false;
-        assert_eq!(find_all(d.storage(), &q, 100).unwrap().len(), 3);
+        assert_eq!(found(&d, &q, 100).len(), 3);
         q.case_sensitive = true;
-        assert_eq!(find_all(d.storage(), &q, 100).unwrap().len(), 1);
+        assert_eq!(found(&d, &q, 100).len(), 1);
     }
 
     #[test]
@@ -648,7 +752,48 @@ mod tests {
         let d = doc("foo foobar barfoo foo");
         let mut q = Query::literal("foo");
         q.whole_word = true;
-        assert_eq!(find_all(d.storage(), &q, 100).unwrap(), vec![0..3, 18..21]);
+        assert_eq!(found(&d, &q, 100), vec![0..3, 18..21]);
+    }
+
+    #[test]
+    fn whole_word_filters_before_it_truncates() {
+        // Twenty sub-word hits and then one bare match. The budget is ten, so
+        // taking the first ten raw hits and filtering afterwards leaves nothing
+        // — the bare `foo` at the end was never reached. Filtering first finds
+        // it, and the scan is complete, not truncated: `find_literal` walked the
+        // whole document (its own budget is four times the list budget).
+        let d = doc(&format!("{}foo", "foobar ".repeat(20)));
+        let mut q = Query::literal("foo");
+        q.whole_word = true;
+        let scan = find_all(d.storage(), &q, 10).unwrap();
+        assert_eq!(scan.ranges, vec![140..143]);
+        assert!(!scan.truncated, "the whole document was scanned");
+    }
+
+    #[test]
+    fn a_filtered_down_scan_still_reports_that_more_may_follow() {
+        // More sub-word hits than even the overshooting scan collects, so the
+        // bare match at the end is still out of reach. The list is empty, but
+        // it must not claim to be the answer: `truncated` is what makes the
+        // committed scan run and find it.
+        let d = doc(&format!("{}foo", "foobar ".repeat(60)));
+        let mut q = Query::literal("foo");
+        q.whole_word = true;
+        let scan = find_all(d.storage(), &q, 10).unwrap();
+        assert!(scan.ranges.is_empty(), "the bare match is out of reach");
+        assert!(
+            scan.truncated,
+            "an empty list from a cut-short scan is not 'no matches'"
+        );
+    }
+
+    #[test]
+    fn whole_word_regex_filters_before_it_truncates() {
+        let d = doc(&format!("{}foo", "foobar ".repeat(20)));
+        let mut q = Query::literal("foo");
+        q.regex = true;
+        q.whole_word = true;
+        assert_eq!(found(&d, &q, 10), vec![140..143]);
     }
 
     #[test]
@@ -656,11 +801,13 @@ mod tests {
         let d = doc("a1 b22 c333");
         let mut q = Query::literal(r"(\d+)");
         q.regex = true;
-        let ranges = find_all(d.storage(), &q, 100).unwrap();
+        let ranges = found(&d, &q, 100);
         assert_eq!(ranges, vec![1..2, 4..6, 8..11]);
 
         let text = d.text();
-        let expanded = expand_replacement("<$1>", &text, &ranges[2], Some(r"(\d+)"));
+        let mut pattern = Query::literal(r"(\d+)");
+        pattern.regex = true;
+        let expanded = expand_replacement("<$1>", &text, &ranges[2], Some(&pattern));
         assert_eq!(expanded, "<333>");
     }
 
@@ -676,7 +823,7 @@ mod tests {
     fn unicode_offsets_are_chars() {
         let d = doc("héllo héllo");
         let q = Query::literal("héllo");
-        assert_eq!(find_all(d.storage(), &q, 100).unwrap(), vec![0..5, 6..11]);
+        assert_eq!(found(&d, &q, 100), vec![0..5, 6..11]);
     }
 
     #[test]
@@ -688,14 +835,14 @@ mod tests {
         // edits to apply.
         let d = doc("😀😀😀");
         let q = Query::literal("😀😀");
-        assert_eq!(find_all(d.storage(), &q, 100).unwrap(), vec![0..2]);
+        assert_eq!(found(&d, &q, 100), vec![0..2]);
     }
 
     #[test]
     fn ascii_matches_do_not_overlap_either() {
         let d = doc("abab");
         let q = Query::literal("ab");
-        assert_eq!(find_all(d.storage(), &q, 100).unwrap(), vec![0..2, 2..4]);
+        assert_eq!(found(&d, &q, 100), vec![0..2, 2..4]);
     }
 
     #[test]
@@ -750,12 +897,12 @@ mod tests {
         assert!(s.matches.truncated);
         s.matches.current = Some(3);
 
-        let generation = s
-            .start_complete()
+        let ticket = s
+            .start_complete(&d)
             .expect("a truncated scan can be completed");
         let full = find_all(d.storage(), &s.query, FULL_MATCHES).unwrap();
-        assert_eq!(full.len(), 100);
-        assert!(s.install(full, false, generation, d.cursor()));
+        assert_eq!(full.ranges.len(), 100);
+        assert!(s.install(full, ticket, &d));
 
         assert_eq!(s.matches.len(), 100, "the tail is now in the list");
         assert!(!s.matches.truncated);
@@ -770,15 +917,61 @@ mod tests {
         s.query = Query::literal("a");
         s.active = true;
         s.rescan_with(&d, 10);
-        let stale = s.start_complete().expect("truncated");
+        let stale = s.start_complete(&d).expect("truncated");
 
         // Typing again invalidates the scan that is already running.
         s.query = Query::literal("a ");
         s.rescan_with(&d, 10);
 
         let later = find_all(d.storage(), &s.query, FULL_MATCHES).unwrap();
-        assert!(!s.install(later, false, stale, 0));
+        assert!(!s.install(later, stale, &d));
         assert_eq!(s.matches.len(), 10, "the live results survive");
+    }
+
+    #[test]
+    fn a_scan_for_another_document_is_dropped() {
+        // Two files at the same revision. The ticket records which one the scan
+        // was started for, so a result that arrives after the user switched
+        // tabs cannot land in the file on screen.
+        let first = doc(&"a ".repeat(100));
+        let second = doc(&"a ".repeat(100));
+        assert_eq!(
+            first.revision(),
+            second.revision(),
+            "the revision alone cannot tell these apart"
+        );
+
+        let mut s = SearchState::new();
+        s.query = Query::literal("a");
+        s.active = true;
+        s.rescan_with(&first, 10);
+        let ticket = s.start_complete(&first).expect("truncated");
+
+        // The user switched tabs; the search is rescanned against the new file.
+        s.rescan_with(&second, 10);
+        let scan = find_all(second.storage(), &s.query, FULL_MATCHES).unwrap();
+        assert!(!s.install(scan, ticket, &second), "wrong document");
+        assert_eq!(s.matches.len(), 10, "the live results survive");
+    }
+
+    #[test]
+    fn a_scan_of_an_edited_document_is_dropped() {
+        let mut d = doc(&"a ".repeat(100));
+        let mut s = SearchState::new();
+        s.query = Query::literal("a");
+        s.active = true;
+        s.rescan_with(&d, 10);
+        let ticket = s.start_complete(&d).expect("truncated");
+
+        // The text moved on without a rescan (the search was not active), so
+        // every position in the result now points at the wrong text.
+        s.active = false;
+        d.set_cursor(0);
+        d.insert_text("a ");
+        s.active = true;
+
+        let scan = find_all(d.storage(), &s.query, FULL_MATCHES).unwrap();
+        assert!(!s.install(scan, ticket, &d), "the positions are stale");
     }
 
     #[test]
@@ -791,7 +984,7 @@ mod tests {
         s.matches.current = Some(0);
 
         assert_eq!(s.counter(), "1 of 10+");
-        s.start_complete();
+        s.start_complete(&d);
         assert_eq!(s.counter(), "1 of 10+ …", "still counting");
     }
 
@@ -822,30 +1015,54 @@ mod tests {
         s.active = true;
         s.rescan_with(&d, 10);
 
-        let generation = s.start_complete().expect("truncated");
-        assert!(s.start_complete().is_none(), "one scan at a time");
+        let ticket = s.start_complete(&d).expect("truncated");
+        assert!(s.start_complete(&d).is_none(), "one scan at a time");
 
         // Pretend even the full budget ran out: the list is still truncated, so
         // without a separate flag every later `next` would scan the file again.
         let full = find_all(d.storage(), &s.query, FULL_MATCHES).unwrap();
-        assert!(s.install(full, true, generation, 0));
+        assert!(s.install(full, ticket, &d));
         assert!(
-            s.start_complete().is_none(),
+            s.start_complete(&d).is_none(),
             "the same query is not rescanned after its committed scan"
         );
 
         // A new query earns a new scan.
         s.query = Query::literal("a ");
         s.rescan_with(&d, 10);
-        assert!(s.start_complete().is_some());
+        assert!(s.start_complete(&d).is_some());
     }
 
     #[test]
     fn dollar_escape_in_replacement() {
-        assert_eq!(expand_replacement("$$5", "", &(0..0), Some("x")), "$$5");
+        let pattern = Query::literal("x");
+        assert_eq!(
+            expand_replacement("$$5", "", &(0..0), Some(&pattern)),
+            "$$5"
+        );
         assert_eq!(
             expand_replacement("cost: $$5", "a", &(0..1), None),
             "cost: $$5"
+        );
+    }
+
+    #[test]
+    fn a_case_insensitive_replacement_still_expands_captures() {
+        // The expansion used to rebuild the pattern with `multi_line` only, so a
+        // case-insensitive search re-ran a case-sensitive pattern against the
+        // matched slice, found no captures, and inserted `$1` verbatim.
+        let d = doc("HELLO");
+        let mut q = Query::literal("(hello)");
+        q.regex = true;
+        q.case_sensitive = false;
+        let ranges = found(&d, &q, 100);
+        assert_eq!(ranges, vec![0..5], "the search itself is case-insensitive");
+
+        let text = d.text();
+        assert_eq!(
+            expand_replacement("<$1>", &text, &ranges[0], Some(&q)),
+            "<HELLO>",
+            "and the backreference resolves to what the search matched"
         );
     }
 }

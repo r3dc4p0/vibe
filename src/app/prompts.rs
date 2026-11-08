@@ -11,6 +11,7 @@ use crate::buffer::Edit;
 use crate::commands::{Category, Command};
 use crate::fuzzy;
 use crate::indent::IndentStyle;
+use crate::input::{self, Action};
 use crate::search::{self, Query};
 use crate::ui::ConfirmAction;
 use crate::ui::{
@@ -330,14 +331,13 @@ impl App {
     /// worth having, but scanning it takes about a second on 2 GB, so it runs on
     /// a worker instead of freezing the editor.
     pub(crate) fn complete_search(&mut self) {
-        let Some(generation) = self.search.start_complete() else {
-            return;
-        };
         let Some(idx) = self.active_index() else {
             return;
         };
+        let Some(ticket) = self.search.start_complete(&self.buffers[idx]) else {
+            return;
+        };
         let doc = &self.buffers[idx];
-        let revision = doc.revision();
         let Some(snapshot) = doc.storage().snapshot() else {
             // A backend that cannot snapshot has nothing expensive to scan.
             self.search
@@ -348,11 +348,7 @@ impl App {
         let tx = self.tx.clone();
         std::thread::spawn(move || {
             let result = search::find_all_in_snapshot(&snapshot, &query, search::FULL_MATCHES);
-            let _ = tx.send(super::Job::Searched {
-                generation,
-                revision,
-                result,
-            });
+            let _ = tx.send(super::Job::Searched { ticket, result });
         });
     }
 
@@ -380,7 +376,11 @@ impl App {
         }
         self.complete_search();
         self.anchor_search_on_cursor(true);
-        if self.search.searching() && self.search.at_scan_end() {
+        // An empty list from a scan that is still running is not an answer: the
+        // whole-word filter can leave nothing behind in the part of the file
+        // that was scanned while bare matches wait past it.
+        if self.search.searching() && (self.search.at_scan_end() || self.search.matches.is_empty())
+        {
             self.info("Searching the rest of the file…");
             return;
         }
@@ -405,7 +405,9 @@ impl App {
         }
         self.complete_search();
         self.anchor_search_on_cursor(false);
-        if self.search.searching() && self.search.at_scan_start() {
+        if self.search.searching()
+            && (self.search.at_scan_start() || self.search.matches.is_empty())
+        {
             self.info("Searching the rest of the file…");
             return;
         }
@@ -442,7 +444,7 @@ impl App {
         };
         let text = self.buffers[idx].text();
         let value = if regex {
-            search::expand_replacement(&replacement, &text, &range, Some(&self.search.query.text))
+            search::expand_replacement(&replacement, &text, &range, Some(&self.search.query))
         } else {
             replacement
         };
@@ -483,12 +485,7 @@ impl App {
         let mut edits = Vec::with_capacity(ranges.len());
         for range in &ranges {
             let value = if regex {
-                search::expand_replacement(
-                    &replacement,
-                    &source,
-                    range,
-                    Some(&self.search.query.text),
-                )
+                search::expand_replacement(&replacement, &source, range, Some(&self.search.query))
             } else {
                 replacement.clone()
             };
@@ -504,6 +501,14 @@ impl App {
     // ------------------------------------------------------- overlay input
 
     pub(crate) fn handle_overlay_key(&mut self, key: KeyEvent) {
+        // A prompt owns the keyboard, so a document shortcut that arrives here
+        // is dropped by every field below. Dropping it *silently* is the one
+        // option that leaves the user guessing: someone who types into the find
+        // bar and hits Ctrl+S out of habit gets no save and no answer. Say what
+        // happened and leave the prompt — and the text in it — alone.
+        if self.ui.overlay.holds_text() && self.prompt_refuses_save(&key) {
+            return;
+        }
         let overlay = std::mem::replace(&mut self.ui.overlay, Overlay::None);
         match overlay {
             Overlay::None => {
@@ -715,6 +720,24 @@ impl App {
             PaletteAction::OpenFile(path) => self.open_path(path),
             PaletteAction::CompareFile(path) => self.compare_with_path(path),
         }
+    }
+
+    /// Report a save shortcut that a prompt is about to swallow.
+    ///
+    /// Returns true when the key was a `Save`-family shortcut, having already
+    /// told the user why nothing happened. The binding itself is left alone:
+    /// what `Ctrl+S` means is a property of the keymap, and the prompt layer is
+    /// the right place to say that this context cannot honour it.
+    fn prompt_refuses_save(&mut self, key: &KeyEvent) -> bool {
+        let saves = matches!(
+            input::translate(key, &self.keymap),
+            Action::Command(Command::Save | Command::SaveAs | Command::SaveAll)
+        );
+        if !saves {
+            return false;
+        }
+        self.warn("Save is unavailable while a prompt is open — press Esc first");
+        true
     }
 }
 

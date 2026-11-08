@@ -56,9 +56,8 @@ pub enum Job {
     Index(Vec<String>),
     /// A committed search finished scanning the whole document.
     Searched {
-        generation: u64,
-        revision: u64,
-        result: Result<Vec<std::ops::Range<usize>>, crate::Error>,
+        ticket: crate::search::Ticket,
+        result: Result<crate::search::Scan, crate::Error>,
     },
 }
 
@@ -349,6 +348,12 @@ impl App {
     pub fn run(&mut self, terminal: &mut crate::terminal::VibeTerminal) -> crate::Result<()> {
         info!("event loop started");
         while self.running {
+            // Draw first, then handle at most one event. Nothing repaints
+            // between a state change and the frame that shows it, so the panes,
+            // the dividers and the status bar are always painted from the same
+            // `App` and cannot disagree about which pane has the focus — a focus
+            // change made by a pane command is on screen on the very next
+            // iteration, with no frame in between showing the old focus.
             terminal
                 .draw(|frame| ui::draw(frame, self))
                 .map_err(|e| crate::Error::Message(format!("render failed: {e}")))?;
@@ -427,24 +432,24 @@ impl App {
                     debug!("file index built: {n} entries");
                     self.refresh_palette();
                 }
-                Job::Searched {
-                    generation,
-                    revision,
-                    result,
-                } => {
-                    // Discard when the text or the query moved on while the
-                    // scan ran: installing it would highlight stale positions.
-                    let current = self.active_doc().map(|d| d.revision());
-                    if current != Some(revision) {
+                Job::Searched { ticket, result } => {
+                    // Discard when the file on screen is not the one that was
+                    // scanned, or when its text moved on while the scan ran:
+                    // installing it would highlight stale positions in a file
+                    // the user may not even be looking at. The generation check
+                    // inside `install` is the third half of the same guard.
+                    let Some(idx) = self.active_index() else {
+                        self.search.abandon(ticket);
+                        continue;
+                    };
+                    if !ticket.describes(&self.buffers[idx]) {
                         debug!("discarding stale search result");
-                        self.search.abandon(generation);
+                        self.search.abandon(ticket);
                         continue;
                     }
-                    let cursor = self.active_doc().map(|d| d.cursor()).unwrap_or(0);
                     match result {
-                        Ok(ranges) => {
-                            let truncated = ranges.len() >= crate::search::FULL_MATCHES;
-                            if !self.search.install(ranges, truncated, generation, cursor) {
+                        Ok(scan) => {
+                            if !self.search.install(scan, ticket, &self.buffers[idx]) {
                                 debug!("discarding superseded search result");
                             }
                         }
@@ -453,7 +458,7 @@ impl App {
                         // the results on screen and stop advertising a scan.
                         Err(e) => {
                             debug!("committed search failed: {e}");
-                            self.search.abandon(generation);
+                            self.search.abandon(ticket);
                         }
                     }
                 }
