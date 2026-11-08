@@ -106,6 +106,7 @@ section.
 | Gesture | Action |
 | --- | --- |
 | Click | Place the cursor |
+| Click a line-number gutter row | Toggle and highlight that line's bookmark |
 | Drag | Select from the press point; the view autoscrolls when the pointer moves above or below the text, and an upwards drag leaves the cursor on the upper edge |
 | Double-click | Select the word |
 | Triple-click | Select the line |
@@ -114,6 +115,21 @@ section.
 | Wheel left / right | Scroll four columns (terminals that report it) |
 | Click a tab | Switch to that buffer |
 | Click a hint in the bottom bar | Run it — the bar is a row of buttons |
+
+## Bookmarks
+
+Click the line-number gutter to add or remove a bookmark. `Ctrl+Shift+B` opens
+or closes the right-hand bookmark panel; it lists bookmarks from open buffers,
+grouped by file. `Ctrl+Alt+B` moves focus between the editor and the panel while
+the panel is open. In the panel, the arrow keys move through bookmarks, Enter
+jumps to the selected line, and typing edits its caption. Click a caption to
+place the insertion point; Esc returns focus to the editor without closing the
+panel. Backspace edits the caption, while Delete removes the selected bookmark.
+
+A non-empty caption is also shown in a visual-only row above its bookmarked
+line. It takes screen space but is not part of the document and is not saved.
+Bookmarks are session-only and remain attached to their line numbers, not to
+the text; deleting enough lines to move one past the end removes it.
 
 The wheel moves the view, never the cursor: it can travel the whole buffer and
 leaves the caret where it was, even off screen. While the caret is out of view
@@ -183,6 +199,8 @@ brings them back.
 | `Ctrl+Shift+G` | `view.toggleIndentGuides` | Rule between indentation blocks on / off |
 | `Alt+Z` | `view.toggleWhitespace` | Show tabs, spaces and control characters |
 | `Alt+W` | `view.toggleWordWrap` | Wrap long lines at the window width |
+| `Ctrl+Shift+B` | `view.toggleBookmarkPanel` | Open or close the bookmark panel |
+| `Ctrl+Alt+B` | `view.focusBookmarkPanel` | Focus the bookmark panel or return to the editor |
 | — | `view.closeDiff` | Close the comparison view |
 | — | `view.nextChange` / `view.prevChange` | Step through changes (see below) |
 

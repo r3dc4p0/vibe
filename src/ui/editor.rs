@@ -338,9 +338,16 @@ fn paint_line(
 /// Without word wrap a row is a line. With it, a row is one segment of a line,
 /// and the same line can fill the whole window — so every consumer of "row N"
 /// has to say which of the two it means.
-enum Row {
+#[derive(Clone)]
+pub enum EditorRow {
+    Bookmark {
+        line: usize,
+        caption: String,
+    },
     /// A whole line, painted through the horizontally scrolled window.
-    Plain { line: usize },
+    Plain {
+        line: usize,
+    },
     /// One wrapped segment of a line.
     Wrapped {
         line: usize,
@@ -349,10 +356,11 @@ enum Row {
     },
 }
 
-impl Row {
-    fn line(&self) -> usize {
+impl EditorRow {
+    pub fn line(&self) -> Option<usize> {
         match self {
-            Row::Plain { line } | Row::Wrapped { line, .. } => *line,
+            EditorRow::Bookmark { .. } => None,
+            EditorRow::Plain { line } | EditorRow::Wrapped { line, .. } => Some(*line),
         }
     }
 }
@@ -368,7 +376,8 @@ fn fill_rows(
     sub: usize,
     rows: usize,
     line_count: usize,
-) -> Vec<Row> {
+    bookmarks: &std::collections::BTreeMap<usize, String>,
+) -> Vec<EditorRow> {
     let mut out = Vec::with_capacity(rows);
     if line_count == 0 {
         return out;
@@ -379,7 +388,16 @@ fn fill_rows(
             if line >= line_count {
                 break;
             }
-            out.push(Row::Plain { line });
+            if let Some(caption) = bookmarks.get(&line).filter(|caption| !caption.is_empty()) {
+                out.push(EditorRow::Bookmark {
+                    line,
+                    caption: caption.to_string(),
+                });
+                if out.len() == rows {
+                    break;
+                }
+            }
+            out.push(EditorRow::Plain { line });
         }
         return out;
     }
@@ -389,7 +407,18 @@ fn fill_rows(
     while out.len() < rows && line < line_count {
         let Some(layout) = cache.layout(storage, line) else {
             // Too long to wrap: one row, painted through the plain path.
-            out.push(Row::Plain { line });
+            if seg == 0 {
+                if let Some(caption) = bookmarks.get(&line).filter(|caption| !caption.is_empty()) {
+                    out.push(EditorRow::Bookmark {
+                        line,
+                        caption: caption.to_string(),
+                    });
+                    if out.len() == rows {
+                        break;
+                    }
+                }
+            }
+            out.push(EditorRow::Plain { line });
             line += 1;
             seg = 0;
             continue;
@@ -400,7 +429,18 @@ fn fill_rows(
             continue;
         }
         while seg < layout.height() && out.len() < rows {
-            out.push(Row::Wrapped {
+            if seg == 0 {
+                if let Some(caption) = bookmarks.get(&line).filter(|caption| !caption.is_empty()) {
+                    out.push(EditorRow::Bookmark {
+                        line,
+                        caption: caption.to_string(),
+                    });
+                    if out.len() == rows {
+                        break;
+                    }
+                }
+            }
+            out.push(EditorRow::Wrapped {
                 line,
                 seg,
                 layout: Rc::clone(&layout),
@@ -413,6 +453,18 @@ fn fill_rows(
         }
     }
     out
+}
+
+pub fn rows_for_document(doc: &Document, cache: &mut LayoutCache, rows: usize) -> Vec<EditorRow> {
+    fill_rows(
+        cache,
+        doc.storage(),
+        doc.scroll_top(),
+        doc.scroll_row(),
+        rows,
+        doc.line_count(),
+        doc.bookmarks(),
+    )
 }
 
 /// Restrict line-relative tokens to one segment, re-based on the segment.
@@ -534,30 +586,63 @@ impl EditorRenderer<'_> {
                 }
                 let lo = scroll_off as isize;
                 let hi = rows.saturating_sub(1).saturating_sub(scroll_off) as isize;
-                match cache.cursor_row(storage, top, sub, cur_line, cur_off, rows * 32) {
-                    Some(abs) if abs < lo => {
-                        let (t, s) = cache.shift(storage, top, sub, abs - lo);
+                if cache
+                    .cursor_row(storage, top, sub, cur_line, cur_off, rows * 32)
+                    .is_none()
+                {
+                    let (t, s) = cache.shift(storage, cur_line, 0, -hi);
+                    top = t;
+                    sub = s;
+                }
+                for _ in 0..rows.saturating_mul(32).max(1) {
+                    let Some(base_row) =
+                        cache.cursor_row(storage, top, sub, cur_line, cur_off, rows * 32)
+                    else {
+                        break;
+                    };
+                    let caption_rows = self
+                        .doc
+                        .bookmarks()
+                        .range(top..=cur_line)
+                        .filter(|(_, caption)| !caption.is_empty())
+                        .count()
+                        .saturating_sub(usize::from(
+                            sub > 0
+                                && self
+                                    .doc
+                                    .bookmark_caption(top)
+                                    .is_some_and(|caption| !caption.is_empty()),
+                        ));
+                    let cursor_row = base_row + caption_rows as isize;
+                    if cursor_row < lo {
+                        let (t, s) = cache.shift(storage, top, sub, -1);
+                        if (t, s) == (top, sub) {
+                            break;
+                        }
                         top = t;
                         sub = s;
-                    }
-                    Some(abs) if abs > hi => {
-                        let (t, s) = cache.shift(storage, top, sub, abs - hi);
+                    } else if cursor_row > hi {
+                        let (t, s) = cache.shift(storage, top, sub, 1);
+                        if (t, s) == (top, sub) {
+                            break;
+                        }
                         top = t;
                         sub = s;
-                    }
-                    Some(_) => {}
-                    None => {
-                        // Too far below to walk to in a reasonable time: this
-                        // was a jump, not a move. Show the cursor's row at the
-                        // bottom of the window rather than scrolling to it.
-                        let (t, s) = cache.shift(storage, cur_line, 0, hi);
-                        top = t;
-                        sub = s;
+                    } else {
+                        break;
                     }
                 }
             }
 
-            let visible = fill_rows(&mut cache, storage, top, sub, rows, line_count);
+            let visible = fill_rows(
+                &mut cache,
+                storage,
+                top,
+                sub,
+                rows,
+                line_count,
+                self.doc.bookmarks(),
+            );
 
             // --- horizontal scroll -------------------------------------------
             // Meaningless when wrapped: every row already fits, so the offset
@@ -690,14 +775,27 @@ impl EditorRenderer<'_> {
                 buf.set_string(text_x, y, "~", Style::default().fg(theme.dim).bg(theme.bg));
                 continue;
             };
-            let line = entry.line();
+            if let EditorRow::Bookmark { caption, .. } = entry {
+                let style = Style::default().fg(theme.mark).bg(theme.overlay_bg);
+                buf.set_string(text_x, y, format!("  {caption}  "), style);
+                continue;
+            }
+            let line = entry.line().expect("document row has a line");
             // A wrapped line shows its number once, on its first row.
             let first_row_of_line = match entry {
-                Row::Plain { .. } => true,
-                Row::Wrapped { seg, .. } => *seg == 0,
+                EditorRow::Plain { .. } => true,
+                EditorRow::Wrapped { seg, .. } => *seg == 0,
+                EditorRow::Bookmark { .. } => unreachable!(),
             };
 
             if show_numbers && first_row_of_line {
+                let bookmarked = self.doc.bookmarks().contains_key(&line);
+                if bookmarked {
+                    buf.set_style(
+                        Rect::new(area.x, y, gutter_w, 1),
+                        Style::default().fg(theme.bg).bg(theme.mark),
+                    );
+                }
                 let (n, style) = if line == cur_line {
                     (
                         line + 1,
@@ -735,8 +833,8 @@ impl EditorRenderer<'_> {
             let line_start = storage.line_start(line);
             let line_len = storage.line_len(line);
             let window = match entry {
-                Row::Plain { .. } => line_window(self.doc, line, left, text_w, tab_width),
-                Row::Wrapped { seg, layout, .. } => {
+                EditorRow::Plain { .. } => line_window(self.doc, line, left, text_w, tab_width),
+                EditorRow::Wrapped { seg, layout, .. } => {
                     let s = layout.segments()[*seg];
                     Window {
                         text: layout.chars()[s.char_off..s.end_char()].iter().collect(),
@@ -744,6 +842,7 @@ impl EditorRenderer<'_> {
                         start_col: s.start_col,
                     }
                 }
+                EditorRow::Bookmark { .. } => unreachable!(),
             };
             let chars: Vec<char> = window.text.chars().collect();
 
@@ -753,11 +852,11 @@ impl EditorRenderer<'_> {
                     .cache
                     .state_for(line, &mut |l| storage.line_slice(l), lang);
                 match entry {
-                    Row::Plain { .. } => {
+                    EditorRow::Plain { .. } => {
                         let (tokens, _) = syntax::lex_line(lang, &window.text, state);
                         scratch_tokens = tokens;
                     }
-                    Row::Wrapped { seg, layout, .. } => {
+                    EditorRow::Wrapped { seg, layout, .. } => {
                         if lexed_line != Some(line) {
                             let (tokens, _) = syntax::lex_line(lang, layout.text(), state);
                             line_tokens = tokens;
@@ -765,6 +864,7 @@ impl EditorRenderer<'_> {
                         }
                         scratch_tokens = clip_tokens(&line_tokens, layout.segments()[*seg]);
                     }
+                    EditorRow::Bookmark { .. } => unreachable!(),
                 }
             }
 
@@ -779,7 +879,7 @@ impl EditorRenderer<'_> {
                 &window,
                 &chars,
                 &scratch_tokens,
-                matches!(entry, Row::Wrapped { .. }),
+                matches!(entry, EditorRow::Wrapped { .. }),
             ) {
                 if pos.x < area.x + area.width {
                     cursor_pos = Some(pos);

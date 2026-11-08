@@ -11,6 +11,7 @@ pub mod storage;
 pub mod undo;
 pub mod wrap;
 
+use std::collections::BTreeMap;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -254,6 +255,8 @@ pub struct Document {
     /// buffer and for a file with no indentation: the editor then falls back to
     /// the configured style.
     indent: Option<crate::indent::IndentStyle>,
+    /// Session-only bookmarks keyed by zero-based line number.
+    bookmarks: BTreeMap<usize, String>,
 }
 
 impl Document {
@@ -282,6 +285,7 @@ impl Document {
             disk_len: None,
             externally_modified: false,
             indent: None,
+            bookmarks: BTreeMap::new(),
         }
     }
 
@@ -314,6 +318,37 @@ impl Document {
 
     pub fn line_count(&self) -> usize {
         self.storage.len_lines()
+    }
+
+    pub fn bookmarks(&self) -> &BTreeMap<usize, String> {
+        &self.bookmarks
+    }
+
+    pub fn bookmark_caption(&self, line: usize) -> Option<&str> {
+        self.bookmarks.get(&line).map(String::as_str)
+    }
+
+    pub fn toggle_bookmark(&mut self, line: usize) -> bool {
+        if line >= self.line_count() {
+            return false;
+        }
+        if self.bookmarks.remove(&line).is_some() {
+            false
+        } else {
+            self.bookmarks.insert(line, String::new());
+            true
+        }
+    }
+
+    pub fn set_bookmark_caption(&mut self, line: usize, caption: String) {
+        if let Some(existing) = self.bookmarks.get_mut(&line) {
+            *existing = caption;
+        }
+    }
+
+    fn prune_bookmarks(&mut self) {
+        let line_count = self.line_count();
+        self.bookmarks.retain(|line, _| *line < line_count);
     }
 
     pub fn text(&self) -> String {
@@ -893,6 +928,7 @@ impl Document {
             kind,
             time: std::time::Instant::now(),
         });
+        self.prune_bookmarks();
         true
     }
 
@@ -1116,6 +1152,7 @@ impl Document {
             kind,
             time: std::time::Instant::now(),
         });
+        self.prune_bookmarks();
         true
     }
 
@@ -1154,6 +1191,7 @@ impl Document {
         self.preferred_col = None;
         self.attach_view();
         self.revision += 1;
+        self.prune_bookmarks();
         true
     }
 
@@ -1178,6 +1216,7 @@ impl Document {
         self.preferred_col = None;
         self.attach_view();
         self.revision += 1;
+        self.prune_bookmarks();
         true
     }
 
@@ -1513,6 +1552,21 @@ mod tests {
         let mut d = doc("abc");
         d.replace_range(1, 999, "X", TxKind::Other);
         assert_eq!(d.text(), "aX");
+    }
+
+    #[test]
+    fn bookmarks_toggle_caption_and_prune_past_end() {
+        let mut d = doc("one\ntwo\nthree");
+        assert!(d.toggle_bookmark(1));
+        d.set_bookmark_caption(1, "keep this".into());
+        assert_eq!(d.bookmark_caption(1), Some("keep this"));
+        assert!(!d.toggle_bookmark(1));
+        assert!(d.toggle_bookmark(1));
+        d.set_bookmark_caption(1, "keep this".into());
+
+        assert!(d.toggle_bookmark(2));
+        d.replace_range(4, d.len_chars(), "", TxKind::Other);
+        assert_eq!(d.bookmarks().keys().copied().collect::<Vec<_>>(), vec![1]);
     }
 
     #[test]
