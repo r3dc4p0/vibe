@@ -721,7 +721,7 @@ impl EditorRenderer<'_> {
             // more of air before the text. The rule sits outside the cursor-line
             // band, so the band still starts exactly at `text_x`.
             if self.cfg.ui_style() == UiStyle::Pixel {
-                let x = area.x + digits as u16 + 1;
+                let x = area.x + MARKER_WIDTH as u16 + digits as u16 + 1;
                 for y in area.y..area.y + area.height {
                     let cell = &mut buf[(x, y)];
                     cell.set_symbol("▏");
@@ -786,7 +786,7 @@ impl EditorRenderer<'_> {
                 // Past the end of the buffer: nothing left but the marker.
                 if show_numbers {
                     buf.set_string(
-                        area.x,
+                        area.x + MARKER_WIDTH as u16,
                         y,
                         " ".repeat(digits),
                         Style::default().fg(theme.dim),
@@ -815,21 +815,7 @@ impl EditorRenderer<'_> {
             if show_numbers && first_row_of_line {
                 let bookmarked =
                     self.bookmark_highlight && self.doc.bookmarks().contains_key(&line);
-                if bookmarked {
-                    buf.set_style(
-                        Rect::new(area.x, y, gutter_w, 1),
-                        Style::default().fg(theme.bg).bg(theme.mark),
-                    );
-                }
-                let (n, style) = if line == cur_line && bookmarked {
-                    (
-                        line + 1,
-                        Style::default()
-                            .fg(theme.gutter_bg)
-                            .bg(theme.gutter_active_fg)
-                            .add_modifier(Modifier::BOLD),
-                    )
-                } else if line == cur_line {
+                let (n, style) = if line == cur_line {
                     (
                         line + 1,
                         Style::default()
@@ -851,7 +837,19 @@ impl EditorRenderer<'_> {
                     s.push(' ');
                 }
                 s.push_str(&label);
-                buf.set_string(area.x, y, &s, style);
+                // A bookmark is marked in the column before the number rather
+                // than by repainting the whole gutter: the number stays legible
+                // and readable as a number, and the mark is the same width
+                // whether or not the line is also the cursor's.
+                if bookmarked {
+                    buf.set_string(
+                        area.x,
+                        y,
+                        BOOKMARK_MARKER,
+                        Style::default().fg(theme.mark).bg(theme.gutter_bg),
+                    );
+                }
+                buf.set_string(area.x + MARKER_WIDTH as u16, y, &s, style);
             }
 
             // ---------------- row background ----------------
@@ -984,10 +982,14 @@ fn line_indent(doc: &Document, line: usize, tab_width: usize) -> usize {
 /// Columns the line-number gutter occupies.
 ///
 /// The renderer and every screen-to-buffer mapping have to agree on this, so it
-/// is computed in one place. The numbers come first, then a column of padding.
-/// The pixel style turns the column after the padding into a hairline and keeps
-/// one column of air before the text; the block style has neither, so its gutter
-/// is the width it always was.
+/// is computed in one place. A marker column comes first, then the numbers, then
+/// a column of padding. The pixel style turns the column after the padding into
+/// a hairline and keeps one column of air before the text; the block style has
+/// neither.
+///
+/// The marker column is reserved even when nothing is bookmarked: it keeps the
+/// numbers still, so placing or clearing a bookmark never shifts the text, and
+/// it is what a bookmark is drawn in.
 pub fn gutter_width(line_count: usize, cfg: &Config) -> u16 {
     if !cfg.editor.line_numbers {
         return 0;
@@ -997,8 +999,17 @@ pub fn gutter_width(line_count: usize, cfg: &Config) -> u16 {
         UiStyle::Pixel => 2,
         UiStyle::Cell => 0,
     };
-    (digits + 1 + rule) as u16
+    (MARKER_WIDTH + digits + 1 + rule) as u16
 }
+
+/// Glyph drawn in the marker column of a bookmarked line.
+///
+/// A half block rather than an emoji: it is one cell wide in every terminal and
+/// belongs to the same block-glyph family as the gutter's hairline.
+pub const BOOKMARK_MARKER: &str = "▌";
+
+/// Columns the marker column takes. See [`BOOKMARK_MARKER`].
+const MARKER_WIDTH: usize = 1;
 
 /// Number of decimal digits in `n` (at least 1).
 pub fn decimal_digits(n: usize) -> usize {

@@ -579,15 +579,21 @@ fn a_click_maps_against_the_pane_it_lands_in() {
     let left = app.panes[0].rect;
     let right = app.panes[1].rect;
     let row = left.y + 3;
+    // Two columns into the text, wherever the gutter happens to end: both panes
+    // show the same file, so they share its gutter width.
+    let text_x = {
+        let doc = app.active_doc().expect("a buffer");
+        vibe::ui::editor::gutter_width(doc.line_count(), &app.config) + 2
+    };
 
     // Row 3 of the left pane is line 4; row 3 of the right pane is further down
     // because that pane is scrolled.
-    click(&mut app, left.x + 6, row);
+    click(&mut app, left.x + text_x, row);
     let _ = screen(&mut app, 80, 24);
     let (left_line, _) = app.buffers[0].cursor_line_col();
     assert_eq!(left_line, 3, "row 3 of the unscrolled pane is line 4");
 
-    click(&mut app, right.x + 6, row);
+    click(&mut app, right.x + text_x, row);
     let _ = screen(&mut app, 80, 24);
     let (right_line, _) = app.buffers[0].cursor_line_col();
     assert_ne!(

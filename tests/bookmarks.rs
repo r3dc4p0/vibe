@@ -29,7 +29,7 @@ fn wheel_down(app: &mut vibe::app::App, column: u16, row: u16) {
 }
 
 #[test]
-fn gutter_click_toggles_and_highlights_bookmark_rectangle() {
+fn gutter_click_toggles_and_draws_the_marker() {
     let scratch = Scratch::new();
     let mut app = editor(scratch.path());
     type_str(&mut app, "first\nsecond");
@@ -53,12 +53,24 @@ fn gutter_click_toggles_and_highlights_bookmark_rectangle() {
     terminal
         .draw(|frame| vibe::ui::draw(frame, &mut app))
         .unwrap();
-    let number = &terminal.backend().buffer()[(area.x + 2, area.y + 2)];
-    let gutter_fill = &terminal.backend().buffer()[(area.x + 1, area.y + 2)];
-    assert_eq!(gutter_fill.bg, theme.mark);
-    assert_eq!(number.fg, theme.gutter_bg);
-    assert_eq!(number.bg, theme.gutter_active_fg);
-    assert_ne!(number.fg, number.bg);
+    let buffer = terminal.backend().buffer();
+
+    // The mark is a glyph in the gutter's first column, not a repaint of the
+    // gutter: the line number keeps its own background and stays readable.
+    // Line 1 sits one row lower than its line number suggests, because its
+    // caption occupies a row of its own above it.
+    let marker = &buffer[(area.x, area.y + 2)];
+    assert_eq!(marker.symbol(), vibe::ui::editor::BOOKMARK_MARKER);
+    assert_eq!(marker.fg, theme.mark);
+    let number = &buffer[(area.x + 3, area.y + 2)];
+    assert_eq!(number.symbol(), "2", "the number is still there");
+    assert_eq!(
+        number.bg, theme.gutter_bg,
+        "and it is no longer painted as a filled block"
+    );
+
+    // The unmarked line above has an empty marker column.
+    assert_eq!(buffer[(area.x, area.y)].symbol(), " ");
 
     double_click(&mut app, area.x + gutter.saturating_sub(1), area.y + 2);
     assert!(!app.active_doc().unwrap().bookmarks().contains_key(&1));
@@ -81,21 +93,32 @@ fn bookmark_gutter_highlight_can_be_bound_to_panel_visibility() {
         let mut terminal = Terminal::new(TestBackend::new(80, 16)).unwrap();
         terminal.draw(|frame| vibe::ui::draw(frame, app)).unwrap();
         let buffer = terminal.backend().buffer();
+        // The marker moves down a row when the caption is shown, so look for it
+        // anywhere in the gutter rather than at a fixed row.
+        let marked = (area.y..area.y + area.height)
+            .any(|y| buffer[(area.x, y)].symbol() == vibe::ui::editor::BOOKMARK_MARKER);
         (
-            buffer[(area.x + 1, area.y + 1)].bg,
+            marked,
             buffer[(area.x + gutter + 2, area.y)].symbol().to_string(),
         )
     };
-    let theme = vibe::ui::theme_of(&app).clone();
     assert!(app.ui.bookmarks.open, "creation opens the panel");
-    assert_eq!(render_styles(&mut app), (theme.mark, "b".to_string()));
+    assert_eq!(
+        render_styles(&mut app),
+        (true, "b".to_string()),
+        "the marker and the caption are both drawn"
+    );
 
     press(
         &mut app,
         KeyCode::Char('b'),
         KeyModifiers::CONTROL | KeyModifiers::SHIFT,
     );
-    assert_eq!(render_styles(&mut app), (theme.gutter_bg, "r".to_string()));
+    assert_eq!(
+        render_styles(&mut app),
+        (false, "r".to_string()),
+        "closing the panel hides both the marker and the caption"
+    );
     click(&mut app, area.x + gutter + 2, area.y);
     assert_eq!(cursor_1(&app), (1, 3));
 
@@ -104,7 +127,7 @@ fn bookmark_gutter_highlight_can_be_bound_to_panel_visibility() {
         KeyCode::Char('b'),
         KeyModifiers::CONTROL | KeyModifiers::SHIFT,
     );
-    assert_eq!(render_styles(&mut app), (theme.mark, "b".to_string()));
+    assert_eq!(render_styles(&mut app), (true, "b".to_string()));
 }
 
 #[test]

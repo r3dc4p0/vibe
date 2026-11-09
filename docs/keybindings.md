@@ -106,7 +106,7 @@ section.
 | Gesture | Action |
 | --- | --- |
 | Click | Place the cursor |
-| Double-click a line-number gutter row | Toggle and highlight that line's bookmark |
+| Double-click a line-number gutter row | Toggle that line's bookmark, marked with `▌` in the gutter |
 | Drag | Select from the press point; the view autoscrolls when the pointer moves above or below the text, and an upwards drag leaves the cursor on the upper edge |
 | Double-click | Select the word |
 | Triple-click | Select the line |
@@ -133,11 +133,10 @@ the text; deleting enough lines to move one past the end removes it.
 Creating a bookmark opens the panel automatically.
 
 New bookmarks receive a default caption (`bookmark 1`, `bookmark 2`, …); typing
-in the selected caption replaces that default. By default, gutter highlights
-remain highlighted and captions remain visible whether the panel is open or
-closed. Set
+in the selected caption replaces that default. By default the gutter marker and
+the captions stay visible whether the panel is open or closed. Set
 `editor.bookmark_gutter_highlight_requires_panel = true` in `config.toml` to
-hide gutter highlights and editor captions while the bookmark panel is closed.
+hide the marker and the editor captions while the bookmark panel is closed.
 
 The wheel moves the view, never the cursor: it can travel the whole buffer and
 leaves the caret where it was, even off screen. While the caret is out of view

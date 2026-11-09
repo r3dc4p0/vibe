@@ -39,7 +39,7 @@ scroll_off = 3
 relative_numbers = false
 # Show the line-number gutter at all.
 line_numbers = true
-# Hide bookmark gutter highlights and editor captions while the panel is closed.
+# Hide bookmark gutter markers and editor captions while the panel is closed.
 bookmark_gutter_highlight_requires_panel = false
 # Render tabs as →, spaces as · and control characters as ^X.
 show_whitespace = false
