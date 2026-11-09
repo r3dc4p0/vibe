@@ -1004,9 +1004,11 @@ pub fn gutter_width(line_count: usize, cfg: &Config) -> u16 {
 
 /// Glyph drawn in the marker column of a bookmarked line.
 ///
-/// A half block rather than an emoji: it is one cell wide in every terminal and
-/// belongs to the same block-glyph family as the gutter's hairline.
-pub const BOOKMARK_MARKER: &str = "▌";
+/// The star is what a browser puts on a bookmarked page, and it is one cell wide
+/// in the monospace fonts terminals ship with. The emoji bookmark is not an
+/// option here: it is two cells wide, so it would either push the numbers out of
+/// line or claim a second column that stays blank on every unbookmarked line.
+pub const BOOKMARK_MARKER: &str = "★";
 
 /// Columns the marker column takes. See [`BOOKMARK_MARKER`].
 const MARKER_WIDTH: usize = 1;

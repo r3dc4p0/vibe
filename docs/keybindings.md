@@ -106,7 +106,7 @@ section.
 | Gesture | Action |
 | --- | --- |
 | Click | Place the cursor |
-| Double-click a line-number gutter row | Toggle that line's bookmark, marked with `▌` in the gutter |
+| Double-click a line-number gutter row | Toggle that line's bookmark, marked with `★` in the gutter |
 | Drag | Select from the press point; the view autoscrolls when the pointer moves above or below the text, and an upwards drag leaves the cursor on the upper edge |
 | Double-click | Select the word |
 | Triple-click | Select the line |
