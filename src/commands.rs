@@ -108,6 +108,8 @@ pub enum Command {
     ToggleHints,
     ToggleCursorLine,
     ToggleWordWrap,
+    ToggleBookmarkPanel,
+    FocusBookmarkPanel,
     WordCount,
     ShowStats,
 
@@ -180,6 +182,8 @@ impl Command {
         Command::ToggleHints,
         Command::ToggleCursorLine,
         Command::ToggleWordWrap,
+        Command::ToggleBookmarkPanel,
+        Command::FocusBookmarkPanel,
         Command::WordCount,
         Command::ShowStats,
         Command::Help,
@@ -250,6 +254,8 @@ impl Command {
             Command::ToggleHints => "view.toggleHints",
             Command::ToggleCursorLine => "view.toggleCursorLine",
             Command::ToggleWordWrap => "view.toggleWordWrap",
+            Command::ToggleBookmarkPanel => "view.toggleBookmarkPanel",
+            Command::FocusBookmarkPanel => "view.focusBookmarkPanel",
             Command::WordCount => "view.wordCount",
             Command::ShowStats => "view.stats",
             Command::Help => "help.show",
@@ -321,6 +327,8 @@ impl Command {
             Command::ToggleHints => "Toggle Shortcut Hints",
             Command::ToggleCursorLine => "Toggle Cursor Line Highlight",
             Command::ToggleWordWrap => "Toggle Word Wrap",
+            Command::ToggleBookmarkPanel => "Toggle Bookmark Panel",
+            Command::FocusBookmarkPanel => "Focus Bookmark Panel",
             Command::WordCount => "Word Count",
             Command::ShowStats => "Document Statistics",
             Command::Help => "Keyboard Shortcuts",
@@ -391,6 +399,8 @@ impl Command {
             | Command::ToggleHints
             | Command::ToggleCursorLine
             | Command::ToggleWordWrap
+            | Command::ToggleBookmarkPanel
+            | Command::FocusBookmarkPanel
             | Command::WordCount
             | Command::CloseDiff
             | Command::DiffNextChange
@@ -467,6 +477,8 @@ impl Command {
             Command::GotoBufferStart => &["ctrl+home"],
             Command::GotoBufferEnd => &["ctrl+end"],
             Command::WordCount => &["ctrl+shift+w"],
+            Command::ToggleBookmarkPanel => &["ctrl+shift+b"],
+            Command::FocusBookmarkPanel => &["ctrl+alt+b"],
             _ => &[],
         }
     }
@@ -504,6 +516,8 @@ impl Command {
                 | Command::ToggleIndentGuides
                 | Command::ToggleCursorLine
                 | Command::ToggleWordWrap
+                | Command::ToggleBookmarkPanel
+                | Command::FocusBookmarkPanel
                 | Command::ShowStats
         )
     }
@@ -528,7 +542,7 @@ mod tests {
     fn all_variants_are_listed() {
         // Guards against forgetting to add a new variant to `ALL`, which would
         // make it invisible to the palette and the keymap builder.
-        assert_eq!(Command::ALL.len(), 65);
+        assert_eq!(Command::ALL.len(), 67);
     }
 
     #[test]

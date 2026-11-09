@@ -10,6 +10,7 @@
 //!
 //! Nothing in here knows about rendering details; `ui::draw` reads this state.
 
+mod bookmarks;
 mod diff;
 mod files;
 mod panes;
@@ -117,6 +118,9 @@ pub struct App {
     last_click: Option<(Instant, u16, u16)>,
     /// Clicks in the current run: 1 place, 2 word, 3 line.
     click_count: u8,
+    /// Clicks on the same line-number gutter rectangle.
+    last_gutter_click: Option<(Instant, usize, u16, u16)>,
+    gutter_click_count: u8,
     /// Where a drag started, so the selection grows from the press point.
     drag_anchor: Option<usize>,
     /// Editor area from the last frame, for mouse coordinate mapping.
@@ -248,6 +252,8 @@ impl App {
             brackets_cache: None,
             last_click: None,
             click_count: 0,
+            last_gutter_click: None,
+            gutter_click_count: 0,
             drag_anchor: None,
             last_editor_area: Rect::default(),
             last_tabs_area: Rect::default(),
@@ -493,7 +499,11 @@ impl App {
             }
             Event::Paste(text) => {
                 if !self.ui.overlay.captures_input() {
-                    self.insert_text(&input::translate_paste(&text).into_text());
+                    if self.ui.bookmarks.focused {
+                        self.insert_bookmark_caption(&text);
+                    } else {
+                        self.insert_text(&input::translate_paste(&text).into_text());
+                    }
                 } else {
                     self.paste_into_prompt(&text);
                 }
@@ -509,6 +519,10 @@ impl App {
     pub fn handle_key(&mut self, key: KeyEvent) {
         if self.ui.overlay.captures_input() {
             self.handle_overlay_key(key);
+            return;
+        }
+        if self.ui.bookmarks.focused {
+            self.handle_bookmark_key(&key);
             return;
         }
 
@@ -583,14 +597,58 @@ impl App {
             MouseEventKind::ScrollLeft => self.wheel_horizontal_at(mouse.column, mouse.row, -4),
             MouseEventKind::ScrollRight => self.wheel_horizontal_at(mouse.column, mouse.row, 4),
             MouseEventKind::Down(MouseButton::Left) => {
+                if self.ui.bookmarks.open
+                    && self
+                        .ui
+                        .bookmarks
+                        .area
+                        .contains((mouse.column, mouse.row).into())
+                {
+                    if let Some(hit) = self
+                        .ui
+                        .bookmarks
+                        .hits
+                        .iter()
+                        .find(|hit| hit.area.contains((mouse.column, mouse.row).into()))
+                        .copied()
+                    {
+                        self.click_bookmark(hit.document_id, hit.line, mouse.column);
+                    } else {
+                        self.ui.bookmarks.focused = true;
+                    }
+                    return;
+                }
                 // The tab strip is chrome, so it is tested before the text.
                 if self.tab_at(mouse.column, mouse.row).is_some() {
                     self.click_tab(mouse.column, mouse.row);
                     return;
                 }
+                self.ui.bookmarks.focused = false;
                 // A click belongs to the pane it lands in, so the focus follows
                 // the pointer before the coordinates are mapped.
                 self.focus_pane_at(mouse.column, mouse.row);
+                let area = self.last_editor_area;
+                if let Some(index) = self.active_index() {
+                    let gutter = self.gutter_width(&self.buffers[index]);
+                    if mouse.column >= area.x && mouse.column < area.x + gutter {
+                        let text_width = area.width.saturating_sub(gutter) as usize;
+                        let visual_row = mouse.row.saturating_sub(area.y) as usize;
+                        let line = self.buffers[index].line_for_bookmark_row(
+                            &self.config,
+                            text_width,
+                            visual_row,
+                            self.show_bookmark_annotations(),
+                        );
+                        if let Some(line) = line {
+                            if self.gutter_click_count(line, mouse.column, mouse.row) == 2 {
+                                self.toggle_active_bookmark(line);
+                                self.last_gutter_click = None;
+                                self.gutter_click_count = 0;
+                            }
+                        }
+                        return;
+                    }
+                }
                 // Alt+Click extends the caret set instead of moving the cursor.
                 if mouse.modifiers.contains(KeyModifiers::ALT) {
                     self.alt_click_at(mouse.column, mouse.row);
@@ -682,40 +740,29 @@ impl App {
         }
         let rel_row = (row - area.y) as usize;
         let target = (column - area.x - gutter) as usize;
+        let display_row = doc.editor_row_for_display_row(
+            cfg,
+            self.text_width(),
+            rel_row,
+            self.show_bookmark_annotations(),
+        )?;
 
-        // A wrapped row is one segment of a line, and rows no longer count
-        // lines: ask the same layout the renderer used which row the pointer is
-        // on before deciding which character it is.
-        if let Some(width) = self.wrap_width() {
-            let mut cache = crate::buffer::LayoutCache::new(Some(width), cfg.tab_width());
-            let storage = doc.storage();
-            let (line, seg) = cache.row_at(storage, doc.scroll_top(), doc.scroll_row(), rel_row)?;
-            let offset = match cache.layout(storage, line) {
-                Some(layout) => layout.pos_at(seg, target, cfg.tab_width()),
-                // Too long to wrap, so it is painted as one row from a window
-                // and the column is measured against the whole line.
-                None => {
-                    crate::buffer::motion::char_at_visual_col(
-                        &storage.line_slice(line),
-                        target,
-                        cfg.tab_width(),
-                    )
-                    .0
-                }
-            };
-            return Some(storage.line_start(line) + offset);
-        }
-
-        let line = doc.scroll_top() + rel_row;
-        if line >= doc.line_count() {
-            return None;
-        }
-        let target_col = target + doc.scroll_left();
-        let line_start = doc.storage().line_start(line);
-        let text = doc.line_text(line);
-        let (offset, _) =
-            crate::buffer::motion::char_at_visual_col(&text, target_col, cfg.tab_width());
-        Some(line_start + offset)
+        let (line, offset) = match display_row {
+            crate::ui::editor::EditorRow::Bookmark { .. } => return None,
+            crate::ui::editor::EditorRow::Wrapped { line, seg, layout } => {
+                (line, layout.pos_at(seg, target, cfg.tab_width()))
+            }
+            crate::ui::editor::EditorRow::Plain { line } => {
+                let target_col = target + doc.scroll_left();
+                let (offset, _) = crate::buffer::motion::char_at_visual_col(
+                    &doc.line_text(line),
+                    target_col,
+                    cfg.tab_width(),
+                );
+                (line, offset)
+            }
+        };
+        Some(doc.storage().line_start(line) + offset)
     }
 
     /// Like [`buffer_position_at`](Self::buffer_position_at) but forgiving: a
@@ -736,63 +783,43 @@ impl App {
         } else {
             (column - area.x - gutter) as usize
         };
+        let rel_row = (row - area.y) as usize;
+        let display_row = doc.editor_row_for_display_row(
+            cfg,
+            self.text_width(),
+            rel_row,
+            self.show_bookmark_annotations(),
+        );
 
-        if let Some(width) = self.wrap_width() {
-            let mut cache = crate::buffer::LayoutCache::new(Some(width), cfg.tab_width());
-            let storage = doc.storage();
-            let rel_row = (row - area.y) as usize;
-            let last = doc.line_count().saturating_sub(1);
-            // Past the last row, keep extending along the final line.
-            let (line, seg) = cache
-                .row_at(storage, doc.scroll_top(), doc.scroll_row(), rel_row)
-                .unwrap_or((last, 0));
-            let offset = match cache.layout(storage, line) {
-                Some(layout) => layout.pos_at(seg, target, cfg.tab_width()),
-                None => {
-                    crate::buffer::motion::char_at_visual_col(
-                        &storage.line_slice(line),
-                        target,
-                        cfg.tab_width(),
-                    )
-                    .0
-                }
-            };
-            return Some(storage.line_start(line) + offset);
-        }
-
-        let line =
-            (doc.scroll_top() + (row - area.y) as usize).min(doc.line_count().saturating_sub(1));
-        let target_col = if column < area.x + gutter {
-            0
-        } else {
-            target + doc.scroll_left()
+        let last = doc.line_count().saturating_sub(1);
+        let (line, offset) = match display_row {
+            Some(crate::ui::editor::EditorRow::Bookmark { line, .. }) => (line, 0),
+            Some(crate::ui::editor::EditorRow::Wrapped { line, seg, layout }) => {
+                (line, layout.pos_at(seg, target, cfg.tab_width()))
+            }
+            Some(crate::ui::editor::EditorRow::Plain { line }) => {
+                let target_col = if column < area.x + gutter {
+                    0
+                } else {
+                    target + doc.scroll_left()
+                };
+                let (offset, _) = crate::buffer::motion::char_at_visual_col(
+                    &doc.line_text(line),
+                    target_col,
+                    cfg.tab_width(),
+                );
+                (line, offset)
+            }
+            None => (last, doc.storage().line_len(last)),
         };
-        let line_start = doc.storage().line_start(line);
-        let text = doc.line_text(line);
-        let (offset, _) =
-            crate::buffer::motion::char_at_visual_col(&text, target_col, cfg.tab_width());
-        Some(line_start + offset)
+        Some(doc.storage().line_start(line) + offset)
     }
 
     /// Handle a left press on the text: place the cursor, or select a word on
     /// the second click and a line on the third.
     fn click_at(&mut self, column: u16, row: u16) {
-        let now = Instant::now();
-        let repeated = self
-            .last_click
-            .map(|(t, x, y)| {
-                now.duration_since(t) < Duration::from_millis(400)
-                    && x.abs_diff(column) <= 1
-                    && y == row
-            })
-            .unwrap_or(false);
-        // Cycle 1 -> 2 -> 3 -> 1 so a fourth click starts over.
-        self.click_count = if repeated {
-            self.click_count % 3 + 1
-        } else {
-            1
-        };
-        self.last_click = Some((now, column, row));
+        self.click_count =
+            Self::next_click_count(&mut self.last_click, self.click_count, column, row);
 
         let Some(pos) = self.buffer_position_at(column, row) else {
             self.drag_anchor = None;
@@ -815,6 +842,45 @@ impl App {
         }
         // A drag that follows this press selects from where it landed.
         self.drag_anchor = Some(pos);
+    }
+
+    fn gutter_click_count(&mut self, line: usize, column: u16, row: u16) -> u8 {
+        let now = Instant::now();
+        let repeated = self
+            .last_gutter_click
+            .map(|(time, last_line, last_column, last_row)| {
+                now.duration_since(time) < Duration::from_millis(400)
+                    && last_line == line
+                    && last_column.abs_diff(column) <= 1
+                    && last_row == row
+            })
+            .unwrap_or(false);
+        self.gutter_click_count = if repeated {
+            self.gutter_click_count % 3 + 1
+        } else {
+            1
+        };
+        self.last_gutter_click = Some((now, line, column, row));
+        self.gutter_click_count
+    }
+
+    fn next_click_count(
+        last_click: &mut Option<(Instant, u16, u16)>,
+        click_count: u8,
+        column: u16,
+        row: u16,
+    ) -> u8 {
+        let now = Instant::now();
+        let repeated = last_click
+            .map(|(time, last_column, last_row)| {
+                now.duration_since(time) < Duration::from_millis(400)
+                    && last_column.abs_diff(column) <= 1
+                    && last_row == row
+            })
+            .unwrap_or(false);
+        let count = if repeated { click_count % 3 + 1 } else { 1 };
+        *last_click = Some((now, column, row));
+        count
     }
 
     /// Extend the selection to the pointer, scrolling when it leaves the text.
@@ -911,6 +977,7 @@ impl App {
     /// that does not have the focus, at *that* pane's width.
     fn scroll_vertical(&mut self, idx: usize, wrap: Option<usize>, delta: isize) {
         let tab_width = self.config.tab_width();
+        let show_bookmark_annotations = self.show_bookmark_annotations();
         let rows = self.buffers[idx].viewport_rows().max(1);
         let doc = &mut self.buffers[idx];
 
@@ -921,8 +988,41 @@ impl App {
         // the *last row* of the last line, which is not the same thing when one
         // wrapped line is taller than the window.
         let last = doc.line_count().saturating_sub(1);
-        let last_row = cache.height(doc.storage(), last).saturating_sub(1);
-        let (max_top, max_sub) = cache.shift(doc.storage(), last, last_row, -(rows as isize - 1));
+        let mut max_top = last;
+        let mut max_sub = cache.height(doc.storage(), last).saturating_sub(1);
+        let mut remaining = rows.saturating_sub(1);
+        while remaining > 0 {
+            if max_sub > 0 {
+                max_sub -= 1;
+                remaining -= 1;
+                continue;
+            }
+            if show_bookmark_annotations
+                && doc
+                    .bookmark_caption(max_top)
+                    .is_some_and(|caption| !caption.is_empty())
+            {
+                remaining -= 1;
+                if remaining == 0 {
+                    break;
+                }
+            }
+            if max_top == 0 {
+                break;
+            }
+            max_top -= 1;
+            max_sub = cache.height(doc.storage(), max_top).saturating_sub(1);
+            remaining -= 1;
+        }
+        if show_bookmark_annotations
+            && max_sub == 0
+            && max_top < last
+            && doc
+                .bookmark_caption(max_top)
+                .is_some_and(|caption| !caption.is_empty())
+        {
+            (max_top, max_sub) = cache.shift(doc.storage(), max_top, max_sub, 1);
+        }
         let (top, sub) = if (top, sub) > (max_top, max_sub) {
             (max_top, max_sub)
         } else {
@@ -1309,6 +1409,8 @@ impl App {
                 ));
             }
             Command::ToggleWordWrap => self.toggle_word_wrap(),
+            Command::ToggleBookmarkPanel => self.toggle_bookmark_panel(),
+            Command::FocusBookmarkPanel => self.focus_bookmark_panel(),
             Command::WordCount => self.word_count(),
             Command::ShowStats => self.show_stats(),
             Command::Help => self.open_help(),

@@ -14,8 +14,9 @@ pub mod overlays;
 
 use std::time::Instant;
 
+use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::Style;
+use ratatui::style::{Modifier, Style};
 use ratatui::Frame;
 
 use crate::app::App;
@@ -443,6 +444,7 @@ impl HintHit {
 #[derive(Debug)]
 pub struct UiState {
     pub overlay: Overlay,
+    pub bookmarks: BookmarkPanel,
     pub messages: Vec<Message>,
     /// Last message shown in the status bar (kept after the toast expires).
     pub status: Option<Message>,
@@ -459,12 +461,33 @@ impl Default for UiState {
     fn default() -> Self {
         Self {
             overlay: Overlay::None,
+            bookmarks: BookmarkPanel::default(),
             messages: Vec::new(),
             status: None,
             hint_hits: Vec::new(),
             hovered_hint: None,
         }
     }
+}
+
+#[derive(Debug, Default)]
+pub struct BookmarkPanel {
+    pub open: bool,
+    pub focused: bool,
+    pub selected: Option<(usize, usize)>,
+    pub caption_cursor: usize,
+    pub scroll: usize,
+    pub replace_default_caption_on_type: bool,
+    pub area: Rect,
+    pub hits: Vec<BookmarkHit>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct BookmarkHit {
+    pub area: Rect,
+    pub document_id: usize,
+    pub line: usize,
+    pub caption_x: u16,
 }
 
 impl UiState {
@@ -498,6 +521,7 @@ struct Layout {
     /// index into it is an index into `app.panes`; a pane too narrow to show
     /// gets a zero-width rect rather than disappearing from the list.
     panes: Vec<Rect>,
+    bookmarks: Option<Rect>,
     status: Option<Rect>,
     hints: Option<Rect>,
 }
@@ -579,7 +603,22 @@ fn layout(area: Rect, app: &App) -> Layout {
     } else {
         None
     };
-    let editor = Rect::new(area.x, y, area.width, editor_h);
+    let full_editor = Rect::new(area.x, y, area.width, editor_h);
+    let (editor, bookmarks) = if app.ui.bookmarks.open && area.width > 2 {
+        let panel_width = (area.width / 3).clamp(8, 32).min(area.width - 2);
+        let editor_width = area.width - panel_width - 1;
+        (
+            Rect::new(area.x, y, editor_width, editor_h),
+            Some(Rect::new(
+                area.x + editor_width + 1,
+                y,
+                panel_width,
+                editor_h,
+            )),
+        )
+    } else {
+        (full_editor, None)
+    };
     let panes = split_columns(editor, app.pane_count().max(1));
     y += editor_h;
     let status_rect = if status > 0 {
@@ -600,6 +639,7 @@ fn layout(area: Rect, app: &App) -> Layout {
         editor,
         tabs: tabs_rect,
         panes,
+        bookmarks,
         status: status_rect,
         hints: hints_rect,
     }
@@ -611,6 +651,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     if area.width == 0 || area.height == 0 {
         return;
     }
+    app.sync_bookmark_selection();
     let theme = app.theme.clone();
     frame
         .buffer_mut()
@@ -628,6 +669,8 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     }
     app.set_editor_area(l.panes.get(app.active_pane).copied().unwrap_or_default());
     app.set_tabs_area(l.tabs.unwrap_or_default());
+    app.ui.bookmarks.area = l.bookmarks.unwrap_or_default();
+    app.ui.bookmarks.hits.clear();
 
     if let Some(r) = l.topbar {
         chrome::draw_topbar(frame.buffer_mut(), r, app);
@@ -658,6 +701,9 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         }
         chrome::draw_pane_dividers(frame.buffer_mut(), &l.panes, app);
     }
+    if let Some(panel) = l.bookmarks {
+        draw_bookmark_panel(frame.buffer_mut(), panel, app);
+    }
     // Leave the active pane's viewport installed in its document: everything
     // after the draw — the status bar, the next keystroke — reads it from
     // there.
@@ -687,6 +733,151 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
 
     if let Some((x, y)) = overlays::draw(frame, app) {
         frame.set_cursor_position((x, y));
+    } else if app.ui.bookmarks.focused {
+        if let Some(hit) = app
+            .ui
+            .bookmarks
+            .hits
+            .iter()
+            .find(|hit| Some((hit.document_id, hit.line)) == app.ui.bookmarks.selected)
+        {
+            let caption = app
+                .buffers
+                .iter()
+                .find(|doc| doc.id() == hit.document_id)
+                .and_then(|doc| doc.bookmark_caption(hit.line))
+                .unwrap_or_default();
+            let cursor_column: usize = caption
+                .chars()
+                .take(app.ui.bookmarks.caption_cursor)
+                .map(|ch| unicode_width::UnicodeWidthChar::width(ch).unwrap_or(1))
+                .sum();
+            let x = hit
+                .caption_x
+                .saturating_add(cursor_column as u16)
+                .min(hit.area.x + hit.area.width - 1);
+            frame.set_cursor_position((x, hit.area.y));
+        }
+    }
+}
+
+fn draw_bookmark_panel(buf: &mut Buffer, area: Rect, app: &mut App) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+    let theme = app.theme.clone();
+    buf.set_style(area, Style::default().fg(theme.fg).bg(theme.bg));
+    let divider_x = area.x.saturating_sub(1);
+    for y in area.y..area.y + area.height {
+        buf[(divider_x, y)]
+            .set_symbol("│")
+            .set_style(Style::default().fg(theme.line).bg(theme.bg));
+    }
+    buf.set_string(
+        area.x + 1,
+        area.y,
+        "Bookmarks",
+        Style::default()
+            .fg(theme.mark)
+            .bg(theme.bg)
+            .add_modifier(Modifier::BOLD),
+    );
+
+    let mut entries = Vec::new();
+    for doc in &app.buffers {
+        if doc.bookmarks().is_empty() {
+            continue;
+        }
+        entries.push((None, doc.display_name(), None));
+        for (line, caption) in doc.bookmarks() {
+            let number_width = editor::decimal_digits(line + 1).max(4);
+            entries.push((
+                Some((doc.id(), *line)),
+                format!(
+                    "{number:>width$} {caption}",
+                    number = line + 1,
+                    width = number_width
+                ),
+                Some(number_width),
+            ));
+        }
+    }
+    if entries.is_empty() {
+        if area.height > 1 {
+            buf.set_string(
+                area.x + 1,
+                area.y + 1,
+                "No bookmarks",
+                Style::default().fg(theme.dim).bg(theme.bg),
+            );
+        }
+        return;
+    }
+    let selected_row = entries
+        .iter()
+        .position(|(item, _, _)| *item == app.ui.bookmarks.selected);
+    let visible_rows = area.height.saturating_sub(1) as usize;
+    if let Some(selected) = selected_row {
+        if selected < app.ui.bookmarks.scroll {
+            app.ui.bookmarks.scroll = selected;
+        } else if selected >= app.ui.bookmarks.scroll + visible_rows {
+            app.ui.bookmarks.scroll = selected + 1 - visible_rows;
+        }
+    }
+    app.ui.bookmarks.scroll = app.ui.bookmarks.scroll.min(entries.len().saturating_sub(1));
+    for (offset, (item, label, number_width)) in entries
+        .iter()
+        .skip(app.ui.bookmarks.scroll)
+        .take(visible_rows)
+        .enumerate()
+    {
+        let y = area.y + 1 + offset as u16;
+        let Some((document_id, line)) = item else {
+            buf.set_string(
+                area.x + 1,
+                y,
+                label,
+                Style::default().fg(theme.dim).bg(theme.bg),
+            );
+            continue;
+        };
+        let selected = app.ui.bookmarks.selected == Some((*document_id, *line));
+        let style = if selected && app.ui.bookmarks.focused {
+            Style::default()
+                .fg(theme.overlay_sel_fg)
+                .bg(theme.overlay_sel_bg)
+        } else if selected {
+            Style::default().fg(theme.mark).bg(theme.gutter_bg)
+        } else {
+            Style::default().fg(theme.fg).bg(theme.bg)
+        };
+        let row = Rect::new(area.x, y, area.width, 1);
+        buf.set_style(row, style);
+        buf.set_string(area.x + 1, y, label, style);
+        let caption_x = area.x + number_width.unwrap_or(4) as u16 + 2;
+        app.ui.bookmarks.hits.push(BookmarkHit {
+            area: row,
+            document_id: *document_id,
+            line: *line,
+            caption_x,
+        });
+        if selected && app.ui.bookmarks.focused {
+            let caption = app
+                .buffers
+                .iter()
+                .find(|doc| doc.id() == *document_id)
+                .and_then(|doc| doc.bookmark_caption(*line))
+                .unwrap_or_default();
+            let cursor_offset: usize = caption
+                .chars()
+                .take(app.ui.bookmarks.caption_cursor)
+                .map(|ch| unicode_width::UnicodeWidthChar::width(ch).unwrap_or(1))
+                .sum();
+            let cursor_x = caption_x + cursor_offset as u16;
+            if cursor_x < area.x + area.width {
+                buf[(cursor_x, y)].set_style(Style::default().fg(theme.bg).bg(theme.mark));
+            }
+        }
     }
 }
 
@@ -730,7 +921,9 @@ fn draw_pane(frame: &mut Frame, area: Rect, app: &mut App, pane: usize, install:
         search: &app.search,
         brackets,
         cache,
-        focused: pane == app.active_pane && app.ui.overlay.is_none(),
+        focused: pane == app.active_pane && app.ui.overlay.is_none() && !app.ui.bookmarks.focused,
+        bookmark_highlight: !app.config.editor.bookmark_gutter_highlight_requires_panel
+            || app.ui.bookmarks.open,
         follows_cursor: pane == app.active_pane,
     };
     renderer.render(frame, area);
