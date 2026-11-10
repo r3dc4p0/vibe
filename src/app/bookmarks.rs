@@ -7,19 +7,33 @@ use unicode_width::UnicodeWidthChar;
 use super::App;
 
 impl App {
+    /// Whether bookmark captions are drawn in the editor this frame.
+    ///
+    /// A caption is a row of screen taken from the document, so it is only
+    /// spent while the panel that explains it is on screen. The gutter mark is
+    /// drawn either way — see [`crate::ui::editor::BOOKMARK_FOLDED_MARKER`] —
+    /// so a bookmark is never invisible, only quiet.
     pub(crate) fn show_bookmark_annotations(&self) -> bool {
-        !self.config.editor.bookmark_gutter_highlight_requires_panel || self.ui.bookmarks.open
+        self.ui.bookmarks.open || !self.config.editor.bookmark_gutter_highlight_requires_panel
     }
 
     pub(crate) fn toggle_bookmark_panel(&mut self) {
+        if self.ui.bookmarks.open {
+            self.settle_bookmark_captions();
+        }
         self.ui.bookmarks.open = !self.ui.bookmarks.open;
         self.ui.bookmarks.focused = false;
+        self.ui.bookmarks.pending_delete = false;
         self.ui.bookmarks.area = ratatui::layout::Rect::default();
         self.ui.bookmarks.hits.clear();
     }
 
     pub(crate) fn focus_bookmark_panel(&mut self) {
         if self.ui.bookmarks.open {
+            if self.ui.bookmarks.focused {
+                self.settle_bookmark_captions();
+                self.ui.bookmarks.pending_delete = false;
+            }
             self.ui.bookmarks.focused = !self.ui.bookmarks.focused;
             self.sync_bookmark_selection();
         }
@@ -31,25 +45,25 @@ impl App {
         };
         if self.buffers[index].bookmarks().contains_key(&line) {
             self.buffers[index].toggle_bookmark(line);
-        } else {
-            let next = self
-                .buffers
-                .iter()
-                .map(|doc| doc.bookmarks().len())
-                .sum::<usize>()
-                + 1;
-            if self.buffers[index].toggle_bookmark(line) {
-                self.buffers[index].set_bookmark_caption(line, format!("bookmark {next}"));
-                self.ui.bookmarks.selected = Some((self.buffers[index].id(), line));
-                self.ui.bookmarks.caption_cursor = 0;
-                self.ui.bookmarks.replace_default_caption_on_type = true;
-                self.ui.bookmarks.open = true;
-            }
+        } else if self.buffers[index].toggle_bookmark(line) {
+            let caption = default_caption(&self.buffers[index], line);
+            self.buffers[index].set_bookmark_caption(line, caption);
+            self.ui.bookmarks.selected = Some((self.buffers[index].id(), line));
+            self.ui.bookmarks.caption_cursor = 0;
+            self.ui.bookmarks.replace_default_caption_on_type = true;
+            self.ui.bookmarks.pending_delete = false;
+            // The name is given in the panel, so the panel is shown for it: a
+            // mark whose name is off screen is a mark you cannot find again.
+            self.ui.bookmarks.open = true;
         }
         self.sync_bookmark_selection();
     }
 
     pub(crate) fn click_bookmark(&mut self, document_id: usize, line: usize, column: u16) {
+        if self.ui.bookmarks.selected != Some((document_id, line)) {
+            self.settle_bookmark_captions();
+            self.ui.bookmarks.pending_delete = false;
+        }
         let Some(doc) = self.buffers.iter().find(|doc| doc.id() == document_id) else {
             return;
         };
@@ -78,9 +92,26 @@ impl App {
     pub(crate) fn handle_bookmark_key(&mut self, key: &KeyEvent) {
         self.sync_bookmark_selection();
         let action = input::translate(key, &self.keymap);
+        // A bookmark is one keystroke from gone and there is nothing to undo it
+        // with, so the keystroke that would remove it asks first. Anything but
+        // Enter is an answer of no, and then does what it would have done.
+        if self.ui.bookmarks.pending_delete {
+            self.ui.bookmarks.pending_delete = false;
+            match action {
+                Action::InsertNewline => {
+                    self.remove_selected_bookmark();
+                    return;
+                }
+                Action::Escape => return,
+                _ => {}
+            }
+        }
         match action {
             Action::Command(command) => self.execute(command),
-            Action::Escape => self.ui.bookmarks.focused = false,
+            Action::Escape => {
+                self.settle_bookmark_captions();
+                self.ui.bookmarks.focused = false;
+            }
             Action::Move { motion, .. } => match motion {
                 crate::buffer::Motion::Up => self.step_bookmark(-1),
                 crate::buffer::Motion::Down => self.step_bookmark(1),
@@ -110,7 +141,7 @@ impl App {
                     self.delete_caption_char(true);
                 }
             }
-            Action::DeleteForward => self.remove_selected_bookmark(),
+            Action::DeleteForward => self.delete_caption_char(false),
             Action::InsertNewline => self.navigate_to_selected_bookmark(),
             Action::Ignored | Action::InsertTab | Action::Dedent => {}
         }
@@ -138,6 +169,8 @@ impl App {
     }
 
     fn step_bookmark(&mut self, delta: isize) {
+        self.settle_bookmark_captions();
+        self.ui.bookmarks.pending_delete = false;
         let refs = self.bookmark_refs();
         if refs.is_empty() {
             self.ui.bookmarks.selected = None;
@@ -222,10 +255,34 @@ impl App {
         } else if !backwards && cursor < chars.len() {
             chars.remove(cursor);
         } else if chars.is_empty() {
-            self.remove_selected_bookmark();
+            // Nothing left to take back: the next press would be the one that
+            // loses the bookmark, so it asks instead. Enter is the yes.
+            self.ui.bookmarks.pending_delete = true;
             return;
         }
         self.buffers[index].set_bookmark_caption(line, chars.iter().collect());
+    }
+
+    /// Give every bookmark that has no name a name.
+    ///
+    /// A bookmark is a place someone named; one with a blank caption is a place
+    /// they cannot pick out of the panel. This runs when the caption loses the
+    /// keyboard — Esc, the panel closing, the selection moving — and not while
+    /// it is being typed into, so clearing a name to write another does not get
+    /// refilled under the writer's fingers.
+    pub(crate) fn settle_bookmark_captions(&mut self) {
+        for doc in &mut self.buffers {
+            let unnamed: Vec<usize> = doc
+                .bookmarks()
+                .iter()
+                .filter(|(_, caption)| caption.is_empty())
+                .map(|(line, _)| *line)
+                .collect();
+            for line in unnamed {
+                let caption = default_caption(doc, line);
+                doc.set_bookmark_caption(line, caption);
+            }
+        }
     }
 
     fn remove_selected_bookmark(&mut self) {
@@ -233,10 +290,12 @@ impl App {
             return;
         };
         self.buffers[index].toggle_bookmark(line);
+        self.ui.bookmarks.pending_delete = false;
         self.sync_bookmark_selection();
     }
 
     fn navigate_to_selected_bookmark(&mut self) {
+        self.settle_bookmark_captions();
         let Some((index, document_id, line)) = self.selected_bookmark() else {
             return;
         };
@@ -254,6 +313,33 @@ impl App {
         }
         self.ui.bookmarks.focused = false;
     }
+}
+
+/// The name a bookmark at `line` is given when nobody names it.
+///
+/// Its place in the file — the third bookmark down is `bookmark_3` — because
+/// that is the number a reader would guess, and it is what the panel's order
+/// says. Counting the bookmarks instead would hand out a name already in use
+/// the moment one in the middle is removed, so a taken number falls through to
+/// the lowest free one: two rows reading `bookmark_2` is worse than a gap.
+fn default_caption(doc: &Document, line: usize) -> String {
+    let ordinal = doc.bookmarks().range(..=line).count();
+    let candidate = format!("bookmark_{ordinal}");
+    if !caption_taken(doc, &candidate) {
+        return candidate;
+    }
+    let mut n = 1;
+    loop {
+        let candidate = format!("bookmark_{n}");
+        if !caption_taken(doc, &candidate) {
+            return candidate;
+        }
+        n += 1;
+    }
+}
+
+fn caption_taken(doc: &Document, candidate: &str) -> bool {
+    doc.bookmarks().values().any(|caption| caption == candidate)
 }
 
 fn char_index_at_display_column(text: &str, column: usize) -> usize {

@@ -140,10 +140,15 @@ keystroke.
 the margin. `Ctrl+Shift+B` opens a panel listing every bookmark across open
 buffers, grouped by file: the arrow keys walk it, `Enter` jumps to the line,
 `Ctrl+Alt+B` moves focus between panel and editor without closing either, and
-typing edits the caption. A new one is named `bookmark 1`, `bookmark 2` and so
-on, and a caption that is not empty is drawn on a row above its line, joined to
+typing edits the caption. Every bookmark is named — `bookmark_1`, `bookmark_2`,
+its place in the file — and a name is drawn on a row above its line, joined to
 the gutter by a rule so the mark reads as a bracket around the code it names.
-That row takes screen space but is not part of the document and is never saved.
+That row exists only while the panel does, so captions never cost you a screen
+row per bookmark while you are working; with the panel closed the mark folds to
+a plain `▌` and the bookmark stays findable. A caption is a rendering, never
+text — a row of screen, never a byte of the file. Emptying a name and pressing
+backspace asks `delete?` rather than removing the bookmark, because there is
+nothing to undo a bookmark with.
 
 **Navigation** — go to line/column, fuzzy file finder (`Ctrl+P`), command
 palette (`Ctrl+Shift+P`) grouped into sections by category — `↑`/`↓` step over

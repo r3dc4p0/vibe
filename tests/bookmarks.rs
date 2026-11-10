@@ -44,7 +44,7 @@ fn gutter_click_toggles_and_draws_the_marker() {
     assert!(app.active_doc().unwrap().bookmarks().contains_key(&1));
     assert_eq!(
         app.active_doc().unwrap().bookmark_caption(1),
-        Some("bookmark 1")
+        Some("bookmark_1")
     );
     assert!(app.ui.bookmarks.open, "creating a bookmark opens its panel");
 
@@ -96,11 +96,9 @@ fn gutter_click_toggles_and_draws_the_marker() {
 }
 
 #[test]
-fn bookmark_gutter_highlight_can_be_bound_to_panel_visibility() {
+fn closing_the_panel_folds_the_caption_into_a_rectangle() {
     let scratch = Scratch::new();
-    let mut app = editor_with(scratch.path(), |config| {
-        config.editor.bookmark_gutter_highlight_requires_panel = true;
-    });
+    let mut app = editor(scratch.path());
     type_str(&mut app, "first");
     screen(&mut app, 80, 16);
     let area = app.editor_area();
@@ -108,27 +106,36 @@ fn bookmark_gutter_highlight_can_be_bound_to_panel_visibility() {
         vibe::ui::editor::gutter_width(app.active_doc().unwrap().line_count(), &app.config);
     double_click(&mut app, area.x + gutter.saturating_sub(1), area.y);
 
-    let render_styles = |app: &mut vibe::app::App| {
+    let render = |app: &mut vibe::app::App| {
         let mut terminal = Terminal::new(TestBackend::new(80, 16)).unwrap();
         terminal.draw(|frame| vibe::ui::draw(frame, app)).unwrap();
         let buffer = terminal.backend().buffer();
-        // The marker moves down a row when the caption is shown, so look for it
-        // anywhere in the gutter rather than at a fixed row.
-        let marked = (area.y..area.y + area.height).any(|y| {
-            (0..gutter)
-                .any(|c| buffer[(area.x + c, y)].symbol() == vibe::ui::editor::BOOKMARK_MARKER)
-        });
-        let first_row: String = (0..80u16)
+        // The mark sits on whichever row its line landed on, which depends on
+        // whether the caption above it is being drawn. The caption's own
+        // corner is in the same column, so only the two bookmark glyphs are
+        // collected.
+        let marks: Vec<(u16, String)> = (area.y..area.y + area.height)
+            .filter_map(|y| {
+                let symbol = buffer[(area.x, y)].symbol().to_string();
+                matches!(symbol.as_str(), "└" | "▌").then_some((y, symbol))
+            })
+            .collect();
+        let rows: Vec<String> = (0..80u16)
             .map(|x| buffer[(x, area.y)].symbol().to_string())
             .collect();
-        (marked, first_row)
+        (marks, rows.concat())
     };
+
     assert!(app.ui.bookmarks.open, "creation opens the panel");
-    let (marked, row) = render_styles(&mut app);
-    assert!(marked, "the marker is drawn");
+    let (marks, row) = render(&mut app);
+    assert_eq!(
+        marks,
+        vec![(area.y + 1, "└".to_string())],
+        "the mark is a corner, one row below its caption"
+    );
     assert!(
-        row.contains("bookmark 1"),
-        "and the caption with it:\n{row}"
+        row.contains("bookmark_1"),
+        "and the caption is on that row:\n{row}"
     );
 
     press(
@@ -136,22 +143,140 @@ fn bookmark_gutter_highlight_can_be_bound_to_panel_visibility() {
         KeyCode::Char('b'),
         KeyModifiers::CONTROL | KeyModifiers::SHIFT,
     );
-    let (marked, row) = render_styles(&mut app);
-    assert!(!marked, "closing the panel hides the marker");
-    assert!(row.contains("first"), "and the caption:\n{row}");
-    click(&mut app, area.x + gutter + 2, area.y);
-    assert_eq!(cursor_1(&app), (1, 3));
+    let (marks, row) = render(&mut app);
+    assert_eq!(
+        marks,
+        vec![(area.y, "▌".to_string())],
+        "with the panel closed the corner folds into a rectangle"
+    );
+    assert!(
+        !row.contains("bookmark_1"),
+        "and the caption gives its row back to the text:\n{row}"
+    );
+    assert!(row.contains("first"), "which is now on the top row:\n{row}");
 
     press(
         &mut app,
         KeyCode::Char('b'),
         KeyModifiers::CONTROL | KeyModifiers::SHIFT,
     );
-    let (marked, row) = render_styles(&mut app);
-    assert!(marked, "the marker comes back with the panel");
+    let (marks, row) = render(&mut app);
+    assert_eq!(marks, vec![(area.y + 1, "└".to_string())], "and back again");
+    assert!(row.contains("bookmark_1"), "with its caption:\n{row}");
+}
+
+#[test]
+fn creating_a_bookmark_shows_a_hidden_panel() {
+    let scratch = Scratch::new();
+    let mut app = editor(scratch.path());
+    type_str(&mut app, "first\nsecond");
+    screen(&mut app, 80, 16);
+    let area = app.editor_area();
+    let gutter =
+        vibe::ui::editor::gutter_width(app.active_doc().unwrap().line_count(), &app.config);
+
+    press(
+        &mut app,
+        KeyCode::Char('b'),
+        KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+    );
+    press(
+        &mut app,
+        KeyCode::Char('b'),
+        KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+    );
+    assert!(!app.ui.bookmarks.open, "the panel starts this test closed");
+
+    double_click(&mut app, area.x + gutter.saturating_sub(1), area.y + 1);
+    assert!(app.active_doc().unwrap().bookmarks().contains_key(&1));
     assert!(
-        row.contains("bookmark 1"),
-        "and so does the caption:\n{row}"
+        app.ui.bookmarks.open,
+        "a new bookmark brings its panel back into view"
+    );
+}
+
+#[test]
+fn emptying_a_caption_asks_before_removing_the_bookmark() {
+    let scratch = Scratch::new();
+    let mut app = editor(scratch.path());
+    type_str(&mut app, "first");
+    app.active_doc_mut().unwrap().toggle_bookmark(0);
+    app.active_doc_mut()
+        .unwrap()
+        .set_bookmark_caption(0, String::new());
+    press(
+        &mut app,
+        KeyCode::Char('b'),
+        KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+    );
+    press(
+        &mut app,
+        KeyCode::Char('b'),
+        KeyModifiers::CONTROL | KeyModifiers::ALT,
+    );
+
+    plain(&mut app, KeyCode::Backspace);
+    assert!(app.ui.bookmarks.pending_delete, "the panel asks first");
+    assert!(
+        app.active_doc().unwrap().bookmarks().contains_key(&0),
+        "and the bookmark is still there to say no to"
+    );
+    let rows = screen(&mut app, 80, 16);
+    assert!(
+        rows.iter().any(|row| row.contains("delete?")),
+        "the question is on the row: {rows:?}"
+    );
+
+    plain(&mut app, KeyCode::Esc);
+    assert!(!app.ui.bookmarks.pending_delete, "Esc is a no");
+    assert!(app.active_doc().unwrap().bookmarks().contains_key(&0));
+
+    plain(&mut app, KeyCode::Backspace);
+    assert!(app.ui.bookmarks.pending_delete);
+    plain(&mut app, KeyCode::Enter);
+    assert!(
+        !app.active_doc().unwrap().bookmarks().contains_key(&0),
+        "Enter is the yes"
+    );
+    assert!(!app.ui.bookmarks.pending_delete);
+}
+
+#[test]
+fn a_bookmark_left_unnamed_is_given_a_name() {
+    let scratch = Scratch::new();
+    let mut app = editor(scratch.path());
+    type_str(&mut app, "first\nsecond");
+    let doc = app.active_doc_mut().unwrap();
+    doc.toggle_bookmark(0);
+    doc.set_bookmark_caption(0, "kept".into());
+    doc.toggle_bookmark(1);
+    doc.set_bookmark_caption(1, String::new());
+    press(
+        &mut app,
+        KeyCode::Char('b'),
+        KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+    );
+    press(
+        &mut app,
+        KeyCode::Char('b'),
+        KeyModifiers::CONTROL | KeyModifiers::ALT,
+    );
+
+    assert_eq!(
+        app.active_doc().unwrap().bookmark_caption(1),
+        Some(""),
+        "still blank while the caret is in it"
+    );
+    plain(&mut app, KeyCode::Esc);
+    assert_eq!(
+        app.active_doc().unwrap().bookmark_caption(1),
+        Some("bookmark_2"),
+        "and named with the first number that is free when it is left"
+    );
+    assert_eq!(
+        app.active_doc().unwrap().bookmark_caption(0),
+        Some("kept"),
+        "the other caption is untouched"
     );
 }
 
@@ -170,8 +295,8 @@ fn new_bookmarks_receive_progressive_default_captions() {
     double_click(&mut app, area.x + gutter.saturating_sub(1), area.y + 3);
 
     let doc = app.active_doc().unwrap();
-    assert_eq!(doc.bookmark_caption(0), Some("bookmark 1"));
-    assert_eq!(doc.bookmark_caption(2), Some("bookmark 2"));
+    assert_eq!(doc.bookmark_caption(0), Some("bookmark_1"));
+    assert_eq!(doc.bookmark_caption(2), Some("bookmark_2"));
 }
 
 #[test]
@@ -230,6 +355,13 @@ fn cursor_stays_visible_when_bookmark_captions_add_visual_rows() {
         doc.set_bookmark_caption(line, format!("note-{line}"));
     }
     doc.goto_line_col(11, 0);
+    // The captions only take their rows while the panel that explains them is
+    // open, so the phantom rows these tests are about need it shown.
+    press(
+        &mut app,
+        KeyCode::Char('b'),
+        KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+    );
 
     let rows = screen(&mut app, 80, 8);
     assert!(rows.iter().any(|row| row.contains("item-11")));
@@ -249,6 +381,11 @@ fn scrolling_reaches_the_last_line_with_phantom_rows() {
         doc.toggle_bookmark(line);
         doc.set_bookmark_caption(line, format!("note-{line}"));
     }
+    press(
+        &mut app,
+        KeyCode::Char('b'),
+        KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+    );
     screen(&mut app, 80, 8);
     let area = app.editor_area();
     for _ in 0..20 {

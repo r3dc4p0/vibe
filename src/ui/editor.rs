@@ -519,8 +519,12 @@ pub struct EditorRenderer<'a> {
     /// False for every pane but the active one, and false while an overlay owns
     /// the terminal cursor.
     pub focused: bool,
-    /// Whether bookmark annotations should be highlighted this frame.
-    pub bookmark_highlight: bool,
+    /// Whether bookmark captions are drawn this frame.
+    ///
+    /// Only the captions: the mark in the gutter is drawn either way, as a
+    /// corner when the captions are there to be bracketed and as a plain
+    /// rectangle when they are not. See [`BOOKMARK_MARKER`].
+    pub bookmark_annotations: bool,
     /// Let the viewport follow the cursor.
     ///
     /// True only for the pane the cursor belongs to. An inactive pane shows the
@@ -617,7 +621,7 @@ impl EditorRenderer<'_> {
                     else {
                         break;
                     };
-                    let caption_rows = if self.bookmark_highlight {
+                    let caption_rows = if self.bookmark_annotations {
                         self.doc
                             .bookmarks()
                             .range(top..=cur_line)
@@ -661,7 +665,7 @@ impl EditorRenderer<'_> {
                 sub,
                 rows,
                 self.doc.bookmarks(),
-                self.bookmark_highlight,
+                self.bookmark_annotations,
             );
 
             // --- horizontal scroll -------------------------------------------
@@ -820,7 +824,7 @@ impl EditorRenderer<'_> {
                         Style::default().fg(theme.mark).bg(theme.gutter_bg),
                     );
                 }
-                let style = if self.bookmark_highlight {
+                let style = if self.bookmark_annotations {
                     Style::default().fg(theme.mark).bg(theme.overlay_bg)
                 } else {
                     Style::default().fg(theme.dim).bg(theme.bg)
@@ -845,8 +849,7 @@ impl EditorRenderer<'_> {
             };
 
             if show_numbers && first_row_of_line {
-                let bookmarked =
-                    self.bookmark_highlight && self.doc.bookmarks().contains_key(&line);
+                let bookmarked = self.doc.bookmarks().contains_key(&line);
                 let (n, style) = if line == cur_line {
                     (
                         line + 1,
@@ -871,12 +874,21 @@ impl EditorRenderer<'_> {
                 s.push_str(&label);
                 // The mark goes in the gutter's first column, ahead of the
                 // numbers, so it reads as a sign column rather than as part of
-                // the number it happens to sit beside.
+                // the number it happens to sit beside. It is drawn whether or
+                // not the panel is open — a closed bookmark has to be findable
+                // — but the glyph says which of the two states it is in: the
+                // corner joins the caption above it into a bracket, the
+                // rectangle says the caption is folded away with the panel.
                 if bookmarked {
+                    let marker = if self.bookmark_annotations {
+                        BOOKMARK_MARKER
+                    } else {
+                        BOOKMARK_FOLDED_MARKER
+                    };
                     buf.set_string(
                         area.x,
                         y,
-                        BOOKMARK_MARKER,
+                        marker,
                         Style::default().fg(theme.mark).bg(theme.gutter_bg),
                     );
                 }
@@ -1033,13 +1045,23 @@ pub fn gutter_width(line_count: usize, cfg: &Config) -> u16 {
     (MARKER_WIDTH + digits + 1 + rule) as u16
 }
 
-/// Glyph drawn in the marker column of a bookmarked line.
+/// Glyph drawn in the marker column of a bookmarked line while its caption is
+/// on screen.
 ///
 /// A corner, so that with the caption's own corner on the row above it the pair
 /// brackets the line. An emoji bookmark is not an option: it is two cells wide,
 /// so it would either push the numbers out of line or claim a second column that
 /// stays blank on every unbookmarked line.
 pub const BOOKMARK_MARKER: &str = "└";
+
+/// Glyph drawn in the marker column of a bookmarked line whose caption is
+/// folded away with the panel.
+///
+/// One cell, like [`BOOKMARK_MARKER`], and it has to be: the two are drawn in
+/// the same column, so a wider one would move the numbers when the panel is
+/// toggled. A filled rectangle rather than an outline, because at one cell an
+/// outline is a single ambiguous stroke.
+pub const BOOKMARK_FOLDED_MARKER: &str = "▌";
 
 /// Columns the marker column takes. See [`BOOKMARK_MARKER`].
 const MARKER_WIDTH: usize = 1;
@@ -1077,7 +1099,7 @@ mod tests {
                     brackets: None,
                     cache: &mut cache,
                     focused: true,
-                    bookmark_highlight: true,
+                    bookmark_annotations: true,
                     follows_cursor: true,
                 };
                 r.render(frame, area);

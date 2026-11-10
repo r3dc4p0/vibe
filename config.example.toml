@@ -39,8 +39,10 @@ scroll_off = 3
 relative_numbers = false
 # Show the line-number gutter at all.
 line_numbers = true
-# Hide bookmark gutter markers and editor captions while the panel is closed.
-bookmark_gutter_highlight_requires_panel = false
+# Draw bookmark captions in the editor only while the panel is open. The gutter
+# marker stays either way: a corner while the captions are shown, a rectangle
+# while they are folded away.
+bookmark_gutter_highlight_requires_panel = true
 # Render tabs as →, spaces as · and control characters as ^X.
 show_whitespace = false
 # Draw a faint vertical rule at the start of every indentation block, running

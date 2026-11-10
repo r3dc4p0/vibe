@@ -478,6 +478,12 @@ pub struct BookmarkPanel {
     pub caption_cursor: usize,
     pub scroll: usize,
     pub replace_default_caption_on_type: bool,
+    /// The selected bookmark is asking to be deleted.
+    ///
+    /// Reached by emptying a caption and pressing backspace again: the panel
+    /// asks instead of removing, because a bookmark is one keystroke away from
+    /// being lost and has nothing to undo it.
+    pub pending_delete: bool,
     pub area: Rect,
     pub hits: Vec<BookmarkHit>,
 }
@@ -788,17 +794,21 @@ fn draw_bookmark_panel(buf: &mut Buffer, area: Rect, app: &mut App) {
         if doc.bookmarks().is_empty() {
             continue;
         }
-        entries.push((None, doc.display_name(), None));
+        entries.push((None, doc.display_name().to_string(), None, false));
         for (line, caption) in doc.bookmarks() {
             let number_width = editor::decimal_digits(line + 1).max(4);
+            let asking = app.ui.bookmarks.pending_delete
+                && app.ui.bookmarks.selected == Some((doc.id(), *line));
             entries.push((
                 Some((doc.id(), *line)),
                 format!(
                     "{number:>width$} {caption}",
                     number = line + 1,
-                    width = number_width
+                    width = number_width,
+                    caption = if asking { "delete?" } else { caption.as_str() },
                 ),
                 Some(number_width),
+                asking,
             ));
         }
     }
@@ -815,7 +825,7 @@ fn draw_bookmark_panel(buf: &mut Buffer, area: Rect, app: &mut App) {
     }
     let selected_row = entries
         .iter()
-        .position(|(item, _, _)| *item == app.ui.bookmarks.selected);
+        .position(|(item, _, _, _)| *item == app.ui.bookmarks.selected);
     let visible_rows = area.height.saturating_sub(1) as usize;
     if let Some(selected) = selected_row {
         if selected < app.ui.bookmarks.scroll {
@@ -825,7 +835,7 @@ fn draw_bookmark_panel(buf: &mut Buffer, area: Rect, app: &mut App) {
         }
     }
     app.ui.bookmarks.scroll = app.ui.bookmarks.scroll.min(entries.len().saturating_sub(1));
-    for (offset, (item, label, number_width)) in entries
+    for (offset, (item, label, number_width, asking)) in entries
         .iter()
         .skip(app.ui.bookmarks.scroll)
         .take(visible_rows)
@@ -855,13 +865,19 @@ fn draw_bookmark_panel(buf: &mut Buffer, area: Rect, app: &mut App) {
         buf.set_style(row, style);
         buf.set_string(area.x + 1, y, label, style);
         let caption_x = area.x + number_width.unwrap_or(4) as u16 + 2;
+        // The question is the caption's own cell, drawn over it in the colour
+        // of a warning rather than as a second kind of row: the number, the
+        // position and the selection all stay where the eye left them.
+        if *asking {
+            buf.set_string(caption_x, y, "delete?", style.fg(theme.error));
+        }
         app.ui.bookmarks.hits.push(BookmarkHit {
             area: row,
             document_id: *document_id,
             line: *line,
             caption_x,
         });
-        if selected && app.ui.bookmarks.focused {
+        if selected && app.ui.bookmarks.focused && !*asking {
             let caption = app
                 .buffers
                 .iter()
@@ -912,6 +928,7 @@ fn draw_pane(frame: &mut Frame, area: Rect, app: &mut App, pane: usize, install:
 
     let brackets = app.brackets_for(idx);
     let doc_id = app.buffers[idx].id();
+    let bookmark_annotations = app.show_bookmark_annotations();
     let cache = app.syntax_cache.entry(doc_id).or_default();
 
     let mut renderer = editor::EditorRenderer {
@@ -922,8 +939,7 @@ fn draw_pane(frame: &mut Frame, area: Rect, app: &mut App, pane: usize, install:
         brackets,
         cache,
         focused: pane == app.active_pane && app.ui.overlay.is_none() && !app.ui.bookmarks.focused,
-        bookmark_highlight: !app.config.editor.bookmark_gutter_highlight_requires_panel
-            || app.ui.bookmarks.open,
+        bookmark_annotations,
         follows_cursor: pane == app.active_pane,
     };
     renderer.render(frame, area);

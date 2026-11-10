@@ -623,6 +623,12 @@ impl App {
                     self.click_tab(mouse.column, mouse.row);
                     return;
                 }
+                if self.ui.bookmarks.focused {
+                    // Leaving the caption for the text is the end of the
+                    // rename, whatever state it was left in.
+                    self.settle_bookmark_captions();
+                    self.ui.bookmarks.pending_delete = false;
+                }
                 self.ui.bookmarks.focused = false;
                 // A click belongs to the pane it lands in, so the focus follows
                 // the pointer before the coordinates are mapped.

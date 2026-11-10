@@ -106,7 +106,7 @@ section.
 | Gesture | Action |
 | --- | --- |
 | Click | Place the cursor |
-| Double-click a line-number gutter row | Toggle that line's bookmark, marked with `└` at the start of the gutter |
+| Double-click a line-number gutter row | Toggle that line's bookmark, marked with `└` at the start of the gutter while the panel is open and `▌` while it is closed |
 | Drag | Select from the press point; the view autoscrolls when the pointer moves above or below the text, and an upwards drag leaves the cursor on the upper edge |
 | Double-click | Select the word |
 | Triple-click | Select the line |
@@ -118,26 +118,36 @@ section.
 
 ## Bookmarks
 
-Double-click the line-number gutter to add or remove a bookmark. `Ctrl+Shift+B` opens
-or closes the right-hand bookmark panel; it lists bookmarks from open buffers,
-grouped by file. `Ctrl+Alt+B` moves focus between the editor and the panel while
-the panel is open. In the panel, the arrow keys move through bookmarks, Enter
-jumps to the selected line, and typing edits its caption. Click a caption to
-place the insertion point; Esc returns focus to the editor without closing the
-panel. Backspace edits the caption, while Delete removes the selected bookmark.
+Double-click the line-number gutter to add or remove a bookmark; adding one
+opens the panel if it was hidden, because the panel is where a bookmark is
+named. `Ctrl+Shift+B` opens or closes the right-hand bookmark panel; it lists
+bookmarks from open buffers, grouped by file. `Ctrl+Alt+B` moves focus between
+the editor and the panel while the panel is open. In the panel, the arrow keys
+move through bookmarks, Enter jumps to the selected line, and typing edits its
+caption. Click a caption to place the insertion point; Esc returns focus to the
+editor without closing the panel. Backspace edits the caption, while Delete
+removes the character after the insertion point.
 
-A non-empty caption is also shown in a visual-only row above its bookmarked
-line, joined to the gutter by a rule so it reads as a bracket around the line.
-It takes screen space but is not part of the document and is not saved.
+A caption is drawn in a visual-only row above its bookmarked line, joined to the
+gutter by a rule so it reads as a bracket around the line. It takes screen space
+but is not part of the document and is not saved. The row is only there while
+the panel is open: with the panel closed the mark in the gutter becomes a plain
+`▌`, which says there is a folded bookmark here without spending a row of the
+file on it. `bookmark_gutter_highlight_requires_panel = false` in `config.toml`
+keeps the captions on screen whether the panel is open or not.
+
 Bookmarks are session-only and remain attached to their line numbers, not to
 the text; deleting enough lines to move one past the end removes it.
-Creating a bookmark opens the panel automatically.
 
-New bookmarks receive a default caption (`bookmark 1`, `bookmark 2`, …); typing
-in the selected caption replaces that default. By default the gutter marker and
-the captions stay visible whether the panel is open or closed. Set
-`editor.bookmark_gutter_highlight_requires_panel = true` in `config.toml` to
-hide the marker and the editor captions while the bookmark panel is closed.
+Every bookmark has a name. A new one is `bookmark_1`, `bookmark_2` and so on —
+its place in the file — and typing in the selected caption replaces that. A
+caption emptied and then left (Esc, the panel closing, the selection moving) is
+given a name again the same way, so no bookmark is ever a blank row in the list.
+
+Emptying a caption and pressing Backspace once more does not delete the
+bookmark: the caption turns into `delete?`, and Enter is what removes it. Esc,
+or any other key, is a no. `Ctrl+Backspace` deletes the selected bookmark
+without asking.
 
 The wheel moves the view, never the cursor: it can travel the whole buffer and
 leaves the caret where it was, even off screen. While the caret is out of view
