@@ -717,11 +717,12 @@ impl EditorRenderer<'_> {
                 gutter,
                 Style::default().fg(theme.gutter_fg).bg(theme.gutter_bg),
             );
-            // One column of air after the numbers, then a hairline, then one
-            // more of air before the text. The rule sits outside the cursor-line
-            // band, so the band still starts exactly at `text_x`.
+            // The numbers, a column of air, the marker column, then a hairline
+            // and one more column of air before the text. The rule sits outside
+            // the cursor-line band, so the band still starts exactly at
+            // `text_x`.
             if self.cfg.ui_style() == UiStyle::Pixel {
-                let x = area.x + MARKER_WIDTH as u16 + digits as u16 + 1;
+                let x = area.x + digits as u16 + MARKER_WIDTH as u16 + 1;
                 for y in area.y..area.y + area.height {
                     let cell = &mut buf[(x, y)];
                     cell.set_symbol("▏");
@@ -786,7 +787,7 @@ impl EditorRenderer<'_> {
                 // Past the end of the buffer: nothing left but the marker.
                 if show_numbers {
                     buf.set_string(
-                        area.x + MARKER_WIDTH as u16,
+                        area.x,
                         y,
                         " ".repeat(digits),
                         Style::default().fg(theme.dim),
@@ -816,7 +817,7 @@ impl EditorRenderer<'_> {
                         area.x,
                         y,
                         &rule,
-                        Style::default().fg(theme.gutter_fg).bg(theme.gutter_bg),
+                        Style::default().fg(theme.mark).bg(theme.gutter_bg),
                     );
                 }
                 let style = if self.bookmark_highlight {
@@ -860,19 +861,18 @@ impl EditorRenderer<'_> {
                     s.push(' ');
                 }
                 s.push_str(&label);
-                // A bookmark is marked in the column before the number rather
-                // than by repainting the whole gutter: the number stays legible
-                // and readable as a number, and the mark is the same width
-                // whether or not the line is also the cursor's.
+                // The mark goes in the column against the hairline, not at the
+                // far edge: the mark and the rule then read as one edge, and
+                // the numbers are left where they were.
                 if bookmarked {
                     buf.set_string(
-                        area.x,
+                        area.x + digits as u16 + 1,
                         y,
                         BOOKMARK_MARKER,
                         Style::default().fg(theme.mark).bg(theme.gutter_bg),
                     );
                 }
-                buf.set_string(area.x + MARKER_WIDTH as u16, y, &s, style);
+                buf.set_string(area.x, y, &s, style);
             }
 
             // ---------------- row background ----------------
@@ -1005,10 +1005,10 @@ fn line_indent(doc: &Document, line: usize, tab_width: usize) -> usize {
 /// Columns the line-number gutter occupies.
 ///
 /// The renderer and every screen-to-buffer mapping have to agree on this, so it
-/// is computed in one place. A marker column comes first, then the numbers, then
-/// a column of padding. The pixel style turns the column after the padding into
-/// a hairline and keeps one column of air before the text; the block style has
-/// neither.
+/// is computed in one place. The numbers come first, then a column of padding,
+/// then the marker column. The pixel style turns the column after the marker
+/// into a hairline and keeps one column of air before the text; the block style
+/// has neither.
 ///
 /// The marker column is reserved even when nothing is bookmarked: it keeps the
 /// numbers still, so placing or clearing a bookmark never shifts the text, and
@@ -1027,11 +1027,11 @@ pub fn gutter_width(line_count: usize, cfg: &Config) -> u16 {
 
 /// Glyph drawn in the marker column of a bookmarked line.
 ///
-/// The star is what a browser puts on a bookmarked page, and it is one cell wide
-/// in the monospace fonts terminals ship with. The emoji bookmark is not an
-/// option here: it is two cells wide, so it would either push the numbers out of
-/// line or claim a second column that stays blank on every unbookmarked line.
-pub const BOOKMARK_MARKER: &str = "★";
+/// The column sits against the hairline, so a block reads as part of the
+/// gutter's edge. An emoji bookmark is not an option: it is two cells wide, so
+/// it would either push the numbers out of line or claim a second column that
+/// stays blank on every unbookmarked line.
+pub const BOOKMARK_MARKER: &str = "▌";
 
 /// Columns the marker column takes. See [`BOOKMARK_MARKER`].
 const MARKER_WIDTH: usize = 1;

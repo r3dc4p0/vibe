@@ -55,25 +55,32 @@ fn gutter_click_toggles_and_draws_the_marker() {
         .unwrap();
     let buffer = terminal.backend().buffer();
 
-    // The mark is a glyph in the gutter's first column, not a repaint of the
-    // gutter: the line number keeps its own background and stays readable.
+    // The mark is a glyph in the column against the hairline, not a repaint of
+    // the gutter: the line number keeps its own background and stays readable.
     // Line 1 sits one row lower than its line number suggests, because its
     // caption occupies a row of its own above it.
-    let marker = &buffer[(area.x, area.y + 2)];
+    let rule_x = area.x + gutter - 2;
+    let marker = &buffer[(rule_x - 1, area.y + 2)];
     assert_eq!(marker.symbol(), vibe::ui::editor::BOOKMARK_MARKER);
     assert_eq!(marker.fg, theme.mark);
-    let number = &buffer[(area.x + 3, area.y + 2)];
-    assert_eq!(number.symbol(), "2", "the number is still there");
+    let number = (0..gutter)
+        .map(|c| &buffer[(area.x + c, area.y + 2)])
+        .find(|cell| cell.symbol() == "2")
+        .expect("the number is still drawn");
     assert_eq!(
         number.bg, theme.gutter_bg,
         "and it is no longer painted as a filled block"
     );
 
-    // The caption hangs off the gutter: a corner under the marker column and a
-    // rule running out to the hairline, so the row reads as a bracket rather
-    // than as another line of the document.
-    let rule_x = area.x + gutter - 2;
+    // The caption hangs off the gutter: a corner at the far edge and a rule
+    // running out to the hairline, so the row reads as a bracket rather than as
+    // another line of the document.
     assert_eq!(buffer[(area.x, area.y + 1)].symbol(), "┌");
+    assert_eq!(
+        buffer[(area.x, area.y + 1)].fg,
+        theme.mark,
+        "the bracket is drawn in the same accent as the caption"
+    );
     assert_eq!(buffer[(rule_x - 1, area.y + 1)].symbol(), "─");
     assert_eq!(
         buffer[(rule_x, area.y + 1)].symbol(),
@@ -107,8 +114,10 @@ fn bookmark_gutter_highlight_can_be_bound_to_panel_visibility() {
         let buffer = terminal.backend().buffer();
         // The marker moves down a row when the caption is shown, so look for it
         // anywhere in the gutter rather than at a fixed row.
-        let marked = (area.y..area.y + area.height)
-            .any(|y| buffer[(area.x, y)].symbol() == vibe::ui::editor::BOOKMARK_MARKER);
+        let marked = (area.y..area.y + area.height).any(|y| {
+            (0..gutter)
+                .any(|c| buffer[(area.x + c, y)].symbol() == vibe::ui::editor::BOOKMARK_MARKER)
+        });
         (
             marked,
             buffer[(area.x + gutter + 2, area.y)].symbol().to_string(),
