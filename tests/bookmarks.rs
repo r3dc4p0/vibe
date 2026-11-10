@@ -28,6 +28,14 @@ fn wheel_down(app: &mut vibe::app::App, column: u16, row: u16) {
     }));
 }
 
+fn undo(app: &mut vibe::app::App) {
+    press(app, KeyCode::Char('z'), KeyModifiers::CONTROL);
+}
+
+fn redo(app: &mut vibe::app::App) {
+    press(app, KeyCode::Char('y'), KeyModifiers::CONTROL);
+}
+
 #[test]
 fn gutter_click_toggles_and_draws_the_marker() {
     let scratch = Scratch::new();
@@ -450,6 +458,111 @@ fn backspace_at_caption_start_does_not_remove_bookmark() {
     plain(&mut app, KeyCode::Home);
     plain(&mut app, KeyCode::Backspace);
     assert_eq!(app.active_doc().unwrap().bookmark_caption(0), Some("note"));
+}
+
+#[test]
+fn a_new_bookmark_is_one_undo_step() {
+    let scratch = Scratch::new();
+    let mut app = editor(scratch.path());
+    type_str(&mut app, "first\nsecond");
+    screen(&mut app, 80, 16);
+    let area = app.editor_area();
+    let gutter =
+        vibe::ui::editor::gutter_width(app.active_doc().unwrap().line_count(), &app.config);
+    double_click(&mut app, area.x + gutter.saturating_sub(1), area.y + 1);
+    assert_eq!(
+        app.active_doc().unwrap().bookmark_caption(1),
+        Some("bookmark_1")
+    );
+
+    undo(&mut app);
+    assert!(
+        !app.active_doc().unwrap().bookmarks().contains_key(&1),
+        "one undo takes the whole bookmark back, name and all"
+    );
+    assert_eq!(text(&app), "first\nsecond", "and leaves the text alone");
+
+    redo(&mut app);
+    assert_eq!(
+        app.active_doc().unwrap().bookmark_caption(1),
+        Some("bookmark_1"),
+        "redo brings it back with its name"
+    );
+}
+
+#[test]
+fn a_typed_caption_undoes_as_one_step() {
+    let scratch = Scratch::new();
+    let mut app = editor(scratch.path());
+    type_str(&mut app, "first");
+    app.active_doc_mut().unwrap().add_bookmark(0, "note".into());
+    press(
+        &mut app,
+        KeyCode::Char('b'),
+        KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+    );
+    press(
+        &mut app,
+        KeyCode::Char('b'),
+        KeyModifiers::CONTROL | KeyModifiers::ALT,
+    );
+    type_str(&mut app, "XY");
+    assert_eq!(
+        app.active_doc().unwrap().bookmark_caption(0),
+        Some("noteXY")
+    );
+
+    undo(&mut app);
+    assert_eq!(
+        app.active_doc().unwrap().bookmark_caption(0),
+        Some("note"),
+        "a run of typing is one rename, not one step per character"
+    );
+    redo(&mut app);
+    assert_eq!(
+        app.active_doc().unwrap().bookmark_caption(0),
+        Some("noteXY")
+    );
+}
+
+#[test]
+fn a_deleted_bookmark_comes_back_on_undo() {
+    let scratch = Scratch::new();
+    let mut app = editor(scratch.path());
+    type_str(&mut app, "first");
+    app.active_doc_mut().unwrap().add_bookmark(0, "note".into());
+    press(
+        &mut app,
+        KeyCode::Char('b'),
+        KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+    );
+    press(
+        &mut app,
+        KeyCode::Char('b'),
+        KeyModifiers::CONTROL | KeyModifiers::ALT,
+    );
+    press(&mut app, KeyCode::Backspace, KeyModifiers::CONTROL);
+    assert!(!app.active_doc().unwrap().bookmarks().contains_key(&0));
+
+    undo(&mut app);
+    assert_eq!(
+        app.active_doc().unwrap().bookmark_caption(0),
+        Some("note"),
+        "undo restores the bookmark and the name it had"
+    );
+}
+
+#[test]
+fn placing_a_bookmark_does_not_mark_the_buffer_modified() {
+    let scratch = Scratch::new();
+    let mut app = editor(scratch.path());
+    assert!(!app.active_doc().unwrap().is_modified());
+    app.active_doc_mut().unwrap().add_bookmark(0, "note".into());
+    assert!(app.active_doc().unwrap().bookmarks().contains_key(&0));
+    assert!(
+        !app.active_doc().unwrap().is_modified(),
+        "a bookmark is session state, not a change to the file"
+    );
 }
 
 #[test]

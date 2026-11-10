@@ -38,13 +38,39 @@ pub enum TxKind {
     Insert,
     DeleteBack,
     DeleteForward,
+    /// A bookmark was placed or taken away.
+    Bookmark,
+    /// A bookmark that was already there was given another name.
+    BookmarkCaption,
     Other,
+}
+
+/// One bookmark changed on a line: `before` became `after`.
+///
+/// `None` is "no bookmark on that line", which is what makes an addition, a
+/// removal and a rename the same record seen from different ends — undo only
+/// has to put `before` back.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BookmarkChange {
+    pub line: usize,
+    pub before: Option<String>,
+    pub after: Option<String>,
+}
+
+impl BookmarkChange {
+    fn bytes(&self) -> usize {
+        self.before.as_ref().map_or(0, String::len) + self.after.as_ref().map_or(0, String::len)
+    }
 }
 
 /// A single undoable step.
 #[derive(Debug, Clone)]
 pub struct Transaction {
     pub changes: Vec<Change>,
+    /// The bookmark this step touched, if it touched one. A transaction can
+    /// carry text or a bookmark but never both: an edit prunes bookmarks past
+    /// the end of the document, and that consequence is not itself a step.
+    pub bookmark: Option<BookmarkChange>,
     pub cursor_before: usize,
     pub anchor_before: Option<usize>,
     pub cursor_after: usize,
@@ -58,6 +84,11 @@ pub struct Transaction {
 }
 
 impl Transaction {
+    /// True when this step changed the text, which is what "modified" means.
+    fn text_changed(&self) -> bool {
+        !self.changes.is_empty()
+    }
+
     fn inserted_chars(&self) -> usize {
         self.changes.iter().map(Change::len_inserted).sum()
     }
@@ -70,7 +101,8 @@ impl Transaction {
         self.changes
             .iter()
             .map(|c| c.removed.len() + c.inserted.len())
-            .sum()
+            .sum::<usize>()
+            + self.bookmark.as_ref().map_or(0, BookmarkChange::bytes)
     }
 }
 
@@ -80,8 +112,15 @@ pub struct History {
     entries: std::collections::VecDeque<Transaction>,
     /// Number of applied entries. `entries[index..]` is the redo stack.
     index: usize,
-    /// Index of the entry that corresponds to the on-disk state.
-    saved_index: Option<usize>,
+    /// Applied entries that changed the text.
+    ///
+    /// Dirtiness is counted in these and not in entries: a bookmark is not part
+    /// of the file, so placing one must not make a buffer look unsaved, and
+    /// undoing one must not make it look saved. Two positions in the history
+    /// with the same count differ only by bookmarks.
+    text_applied: usize,
+    /// `text_applied` as it was when the file was last written.
+    saved_text: Option<usize>,
     /// Suppress merging into the previous entry (set after save / undo / redo).
     barrier: bool,
     limit_entries: usize,
@@ -105,7 +144,8 @@ impl History {
         Self {
             entries: std::collections::VecDeque::new(),
             index: 0,
-            saved_index: Some(0),
+            text_applied: 0,
+            saved_text: Some(0),
             barrier: true,
             limit_entries,
             limit_bytes,
@@ -122,7 +162,7 @@ impl History {
     }
 
     pub fn is_dirty(&self) -> bool {
-        self.saved_index != Some(self.index)
+        self.saved_text != Some(self.text_applied)
     }
 
     /// Number of applied entries (monotonic only within a save epoch).
@@ -131,13 +171,13 @@ impl History {
     }
 
     pub fn mark_saved(&mut self) {
-        self.saved_index = Some(self.index);
+        self.saved_text = Some(self.text_applied);
         self.barrier = true;
     }
 
     /// Forget the saved state (used when a buffer's file disappears).
     pub fn invalidate_save_point(&mut self) {
-        self.saved_index = None;
+        self.saved_text = None;
     }
 
     /// Record an edit. Returns `false` when the edit was merged into the
@@ -166,6 +206,9 @@ impl History {
         }
 
         self.bytes = self.bytes.saturating_add(tx.bytes());
+        if tx.text_changed() {
+            self.text_applied += 1;
+        }
         self.entries.push_back(tx);
         self.index = self.entries.len();
         self.barrier = false;
@@ -180,7 +223,11 @@ impl History {
         }
         self.index -= 1;
         self.barrier = true;
-        self.entries.get(self.index).cloned()
+        let tx = self.entries.get(self.index).cloned();
+        if tx.as_ref().is_some_and(Transaction::text_changed) {
+            self.text_applied = self.text_applied.saturating_sub(1);
+        }
+        tx
     }
 
     /// The transaction to redo.
@@ -191,27 +238,35 @@ impl History {
         let tx = self.entries.get(self.index).cloned();
         self.index += 1;
         self.barrier = true;
+        if tx.as_ref().is_some_and(Transaction::text_changed) {
+            self.text_applied += 1;
+        }
         tx
     }
 
     fn trim(&mut self) {
         let mut trimmed = 0usize;
+        let mut trimmed_text = 0usize;
         while self.entries.len() > self.limit_entries || self.bytes > self.limit_bytes {
             if self.entries.len() <= 1 {
                 break;
             }
             if let Some(dropped) = self.entries.pop_front() {
                 self.bytes = self.bytes.saturating_sub(dropped.bytes());
+                if dropped.text_changed() {
+                    trimmed_text += 1;
+                }
                 trimmed += 1;
             }
         }
         if trimmed > 0 {
             self.index = self.index.saturating_sub(trimmed);
-            self.saved_index = match self.saved_index {
+            self.text_applied = self.text_applied.saturating_sub(trimmed_text);
+            self.saved_text = match self.saved_text {
                 // The saved state fell out of the history window: stay dirty
                 // until the next explicit save.
-                Some(s) if s < trimmed => None,
-                Some(s) => Some(s - trimmed),
+                Some(s) if s < trimmed_text => None,
+                Some(s) => Some(s - trimmed_text),
                 None => None,
             };
         }
@@ -225,6 +280,36 @@ fn try_merge(prev: &Transaction, next: &Transaction) -> Option<Transaction> {
     }
     if next.time.duration_since(prev.time) > COALESCE_WINDOW {
         return None;
+    }
+    // A caption is typed one character at a time, so a rename arrives as a run
+    // of one-character steps. They fold together when they meet end to end on
+    // the same line, which leaves one undo for one rename. Placements and
+    // removals are never folded: an add followed by a remove meets end to end
+    // too, and undoing the pair would leave nothing at all.
+    if prev.kind == TxKind::BookmarkCaption {
+        if let (Some(a), Some(b)) = (&prev.bookmark, &next.bookmark) {
+            if prev.changes.is_empty() && next.changes.is_empty() {
+                if a.line != b.line || a.after != b.before {
+                    return None;
+                }
+                return Some(Transaction {
+                    changes: Vec::new(),
+                    bookmark: Some(BookmarkChange {
+                        line: a.line,
+                        before: a.before.clone(),
+                        after: b.after.clone(),
+                    }),
+                    cursor_before: prev.cursor_before,
+                    anchor_before: prev.anchor_before,
+                    cursor_after: next.cursor_after,
+                    anchor_after: next.anchor_after,
+                    extra_before: prev.extra_before.clone(),
+                    extra_after: next.extra_after.clone(),
+                    kind: prev.kind,
+                    time: next.time,
+                });
+            }
+        }
     }
     if prev.anchor_after.is_some() || next.anchor_before.is_some() {
         return None;
@@ -294,11 +379,12 @@ fn try_merge(prev: &Transaction, next: &Transaction) -> Option<Transaction> {
                 inserted: String::new(),
             }
         }
-        TxKind::Other => return None,
+        TxKind::Other | TxKind::Bookmark | TxKind::BookmarkCaption => return None,
     };
 
     Some(Transaction {
         changes: vec![merged],
+        bookmark: None,
         cursor_before: prev.cursor_before,
         anchor_before: prev.anchor_before,
         cursor_after: next.cursor_after,
@@ -321,9 +407,35 @@ mod tests {
                 removed: String::new(),
                 inserted: text.to_string(),
             }],
+            bookmark: None,
             cursor_before: start,
             anchor_before: None,
             cursor_after: start + text.chars().count(),
+            anchor_after: None,
+            extra_before: Vec::new(),
+            extra_after: Vec::new(),
+            kind,
+            time: Instant::now(),
+        }
+    }
+
+    fn bookmark_tx(line: usize, before: Option<&str>, after: Option<&str>) -> Transaction {
+        // The same rule the document uses: a change with something at both ends
+        // is a rename, anything else is a placement or a removal.
+        let kind = match (before, after) {
+            (Some(_), Some(_)) => TxKind::BookmarkCaption,
+            _ => TxKind::Bookmark,
+        };
+        Transaction {
+            changes: Vec::new(),
+            bookmark: Some(BookmarkChange {
+                line,
+                before: before.map(str::to_string),
+                after: after.map(str::to_string),
+            }),
+            cursor_before: 0,
+            anchor_before: None,
+            cursor_after: 0,
             anchor_after: None,
             extra_before: Vec::new(),
             extra_after: Vec::new(),
@@ -395,5 +507,82 @@ mod tests {
         }
         assert!(h.entries.len() <= 2);
         assert_eq!(h.index, h.entries.len());
+    }
+
+    #[test]
+    fn a_bookmark_is_undoable_but_never_makes_the_file_dirty() {
+        let mut h = History::default();
+        h.push(insert_tx(0, "a", TxKind::Insert));
+        h.mark_saved();
+        assert!(!h.is_dirty());
+
+        h.push(bookmark_tx(3, None, Some("")));
+        assert!(!h.is_dirty(), "a bookmark is not part of the file");
+        assert!(h.can_undo());
+
+        let tx = h.undo().unwrap();
+        assert_eq!(tx.bookmark.unwrap().line, 3);
+        assert!(!h.is_dirty());
+        assert!(h.can_redo());
+
+        h.redo();
+        assert!(!h.is_dirty());
+    }
+
+    #[test]
+    fn undoing_a_text_edit_under_a_bookmark_is_still_dirty() {
+        let mut h = History::default();
+        h.push(bookmark_tx(0, None, Some("")));
+        h.mark_saved();
+        h.push(insert_tx(0, "a", TxKind::Insert));
+        assert!(h.is_dirty());
+        h.undo();
+        assert!(!h.is_dirty(), "back at the saved text");
+    }
+
+    #[test]
+    fn a_typed_caption_folds_into_one_rename() {
+        let mut h = History::default();
+        h.push(bookmark_tx(1, None, Some("")));
+        h.mark_saved();
+        h.push(bookmark_tx(1, Some(""), Some("R")));
+        h.push(bookmark_tx(1, Some("R"), Some("Re")));
+        h.push(bookmark_tx(1, Some("Re"), Some("Rev")));
+        assert_eq!(h.depth(), 2, "the rename is one step on top of the add");
+
+        let tx = h.undo().unwrap();
+        let mark = tx.bookmark.unwrap();
+        assert_eq!(
+            (mark.before.as_deref(), mark.after.as_deref()),
+            (Some(""), Some("Rev"))
+        );
+
+        let tx = h.undo().unwrap();
+        let mark = tx.bookmark.unwrap();
+        assert_eq!((mark.before, mark.after), (None, Some(String::new())));
+    }
+
+    #[test]
+    fn naming_a_new_bookmark_is_a_step_of_its_own() {
+        let mut h = History::default();
+        h.push(bookmark_tx(1, None, Some("bookmark_1")));
+        h.push(bookmark_tx(1, Some("bookmark_1"), Some("R")));
+        assert_eq!(h.depth(), 2, "the name is not folded into the placement");
+
+        let mark = h.undo().unwrap().bookmark.unwrap();
+        assert_eq!(
+            (mark.before, mark.after),
+            (Some("bookmark_1".to_string()), Some("R".to_string()))
+        );
+        let mark = h.undo().unwrap().bookmark.unwrap();
+        assert_eq!(mark.before, None, "and the placement is still its own step");
+    }
+
+    #[test]
+    fn two_bookmarks_do_not_merge_across_lines() {
+        let mut h = History::default();
+        h.push(bookmark_tx(1, None, Some("")));
+        h.push(bookmark_tx(2, None, Some("")));
+        assert_eq!(h.depth(), 2);
     }
 }

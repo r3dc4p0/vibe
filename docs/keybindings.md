@@ -149,6 +149,12 @@ bookmark: the caption turns into `delete?`, and Enter is what removes it. Esc,
 or any other key, is a no. `Ctrl+Backspace` deletes the selected bookmark
 without asking.
 
+Placing, removing and renaming a bookmark are all undo steps, in the same stack
+as the text: `Ctrl+Z` takes back the name you typed, and `Ctrl+Z` again takes the
+bookmark away. A whole run of typing a caption is one step, not one per
+character. Bookmarks are not part of the file, so none of this marks the buffer
+modified.
+
 The wheel moves the view, never the cursor: it can travel the whole buffer and
 leaves the caret where it was, even off screen. While the caret is out of view
 the status bar adds its line in amber, with `↑` or `↓` for the direction to

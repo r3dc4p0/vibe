@@ -93,6 +93,15 @@ plus the cursor and anchor before and after. Two consequences:
   512 characters merge into one entry. Backspaces coalesce the same way. Save,
   undo and redo insert a *barrier* so a run never merges across them.
 
+A transaction can carry a bookmark instead of text: `BookmarkChange` records one
+line and the caption it had before and after, where `None` means "no bookmark
+there". That makes placing, removing and renaming the same record seen from
+different ends, so undo has only to put `before` back, and the three interleave
+with text edits in one stack — `Ctrl+Z` after typing takes the letters back, and
+`Ctrl+Z` again takes the bookmark back. Caption runs coalesce like typing does,
+but a rename never merges into the placement it followed: undoing a name should
+leave the bookmark standing.
+
 `apply_batch` exists so that "replace all", "indent selection" and "trim
 whitespace" are a single undo step even though they touch many places: edits are
 applied from the highest offset downwards (so every range stays valid in the
@@ -105,8 +114,11 @@ also what makes a batch delete leave every caret at its own deletion point. The
 transaction records the secondary carets before and after the edit, so undo
 brings the whole caret set back rather than collapsing to one.
 
-Dirty state is `saved_index != index` in the history, not a boolean, which is why
-undoing back to the save point clears the modified marker.
+Dirty state is counted in *text* entries, not in entries: `saved_text !=
+text_applied`. A bookmark is not part of the file, so placing one must not make a
+buffer look unsaved and undoing one must not make it look saved — two positions
+in the history with the same count differ only by bookmarks. Undoing back to the
+save point clears the modified marker as before.
 
 ### Multi-cursor model
 

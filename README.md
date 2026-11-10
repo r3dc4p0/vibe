@@ -146,9 +146,11 @@ the gutter by a rule so the mark reads as a bracket around the code it names.
 That row exists only while the panel does, so captions never cost you a screen
 row per bookmark while you are working; with the panel closed the mark folds to
 a plain `▌` and the bookmark stays findable. A caption is a rendering, never
-text — a row of screen, never a byte of the file. Emptying a name and pressing
-backspace asks `delete?` rather than removing the bookmark, because there is
-nothing to undo a bookmark with.
+text — a row of screen, never a byte of the file. Placing, removing and renaming
+are undo steps in the same stack as the text, so `Ctrl+Z` takes back the name you
+typed and then the bookmark itself; none of it marks the file modified.
+Emptying a name and pressing backspace asks `delete?` rather than removing the
+bookmark on the spot.
 
 **Navigation** — go to line/column, fuzzy file finder (`Ctrl+P`), command
 palette (`Ctrl+Shift+P`) grouped into sections by category — `↑`/`↓` step over

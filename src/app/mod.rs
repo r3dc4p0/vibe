@@ -1446,6 +1446,7 @@ impl App {
         };
         if doc.undo() {
             self.after_edit();
+            self.after_bookmark_change();
         } else {
             self.info("Nothing to undo");
         }
@@ -1508,6 +1509,7 @@ impl App {
         };
         if doc.redo() {
             self.after_edit();
+            self.after_bookmark_change();
         } else {
             self.info("Nothing to redo");
         }

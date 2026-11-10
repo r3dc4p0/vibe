@@ -45,16 +45,19 @@ impl App {
         };
         if self.buffers[index].bookmarks().contains_key(&line) {
             self.buffers[index].toggle_bookmark(line);
-        } else if self.buffers[index].toggle_bookmark(line) {
+        } else {
+            // Naming it here rather than with a second call: two calls are two
+            // undo steps, and one of them would leave a bookmark with no name.
             let caption = default_caption(&self.buffers[index], line);
-            self.buffers[index].set_bookmark_caption(line, caption);
-            self.ui.bookmarks.selected = Some((self.buffers[index].id(), line));
-            self.ui.bookmarks.caption_cursor = 0;
-            self.ui.bookmarks.replace_default_caption_on_type = true;
-            self.ui.bookmarks.pending_delete = false;
-            // The name is given in the panel, so the panel is shown for it: a
-            // mark whose name is off screen is a mark you cannot find again.
-            self.ui.bookmarks.open = true;
+            if self.buffers[index].add_bookmark(line, caption) {
+                self.ui.bookmarks.selected = Some((self.buffers[index].id(), line));
+                self.ui.bookmarks.caption_cursor = 0;
+                self.ui.bookmarks.replace_default_caption_on_type = true;
+                self.ui.bookmarks.pending_delete = false;
+                // The name is given in the panel, so the panel is shown for it:
+                // a mark whose name is off screen is a mark you cannot find.
+                self.ui.bookmarks.open = true;
+            }
         }
         self.sync_bookmark_selection();
     }
@@ -152,6 +155,19 @@ impl App {
             .iter()
             .flat_map(|doc| doc.bookmarks().keys().map(move |line| (doc.id(), *line)))
             .collect()
+    }
+
+    /// Put the panel back in order after the bookmarks moved under it.
+    ///
+    /// Undo and redo change the set without going through the panel, so the
+    /// selection may point at a bookmark that is no longer there and the
+    /// caption caret at a character that no longer exists. Both are re-derived
+    /// here rather than trusted.
+    pub(crate) fn after_bookmark_change(&mut self) {
+        self.ui.bookmarks.pending_delete = false;
+        self.ui.bookmarks.replace_default_caption_on_type = false;
+        self.sync_bookmark_selection();
+        self.caption_end();
     }
 
     pub(crate) fn sync_bookmark_selection(&mut self) {
@@ -323,7 +339,9 @@ impl App {
 /// the moment one in the middle is removed, so a taken number falls through to
 /// the lowest free one: two rows reading `bookmark_2` is worse than a gap.
 fn default_caption(doc: &Document, line: usize) -> String {
-    let ordinal = doc.bookmarks().range(..=line).count();
+    // The line's own bookmark is not in the map yet when this runs for a new
+    // one, so the count below it plus one is its place either way.
+    let ordinal = doc.bookmarks().range(..line).count() + 1;
     let candidate = format!("bookmark_{ordinal}");
     if !caption_taken(doc, &candidate) {
         return candidate;

@@ -328,22 +328,86 @@ impl Document {
         self.bookmarks.get(&line).map(String::as_str)
     }
 
+    /// Add a bookmark on `line`, or remove the one already there.
+    ///
+    /// Returns true when a bookmark is there afterwards. The change goes on the
+    /// undo stack like any edit, so `Ctrl+Z` takes a bookmark back out again.
     pub fn toggle_bookmark(&mut self, line: usize) -> bool {
         if line >= self.line_count() {
             return false;
         }
-        if self.bookmarks.remove(&line).is_some() {
-            false
-        } else {
-            self.bookmarks.insert(line, String::new());
-            true
+        let before = self.bookmarks.get(&line).cloned();
+        let after = match before {
+            Some(_) => None,
+            None => Some(String::new()),
+        };
+        self.apply_bookmark(undo::BookmarkChange {
+            line,
+            before,
+            after,
+        })
+    }
+
+    /// Add a bookmark and name it in one step.
+    ///
+    /// Adding and then renaming would be two transactions, and one `Ctrl+Z`
+    /// would leave a bookmark with no name behind; this is the pair as the user
+    /// performed it.
+    pub fn add_bookmark(&mut self, line: usize, caption: String) -> bool {
+        if line >= self.line_count() || self.bookmarks.contains_key(&line) {
+            return false;
         }
+        self.apply_bookmark(undo::BookmarkChange {
+            line,
+            before: None,
+            after: Some(caption),
+        })
     }
 
     pub fn set_bookmark_caption(&mut self, line: usize, caption: String) {
-        if let Some(existing) = self.bookmarks.get_mut(&line) {
-            *existing = caption;
+        let Some(before) = self.bookmarks.get(&line).cloned() else {
+            return;
+        };
+        if before == caption {
+            return;
         }
+        self.apply_bookmark(undo::BookmarkChange {
+            line,
+            before: Some(before),
+            after: Some(caption),
+        });
+    }
+
+    /// Write one bookmark change and record it as an undoable step.
+    ///
+    /// The text revision is deliberately left alone: nothing in the document
+    /// moved, so the lexer caches still hold.
+    fn apply_bookmark(&mut self, change: undo::BookmarkChange) -> bool {
+        match &change.after {
+            Some(caption) => self.bookmarks.insert(change.line, caption.clone()),
+            None => self.bookmarks.remove(&change.line),
+        };
+        let present = change.after.is_some();
+        // A rename is told apart from a placement so the two do not fold into
+        // one step: undoing the name someone typed should leave the bookmark
+        // behind with the name it had, not take the bookmark away.
+        let kind = match (&change.before, &change.after) {
+            (Some(_), Some(_)) => undo::TxKind::BookmarkCaption,
+            _ => undo::TxKind::Bookmark,
+        };
+        self.history.push(undo::Transaction {
+            changes: Vec::new(),
+            bookmark: Some(change),
+            cursor_before: self.cursor,
+            anchor_before: self.anchor,
+            cursor_after: self.cursor,
+            anchor_after: self.anchor,
+            extra_before: self.extra.clone(),
+            extra_after: self.extra.clone(),
+            kind,
+            time: std::time::Instant::now(),
+        });
+        present
     }
 
     fn prune_bookmarks(&mut self) {
@@ -919,6 +983,7 @@ impl Document {
                 removed,
                 inserted: text.to_string(),
             }],
+            bookmark: None,
             cursor_before,
             anchor_before,
             cursor_after,
@@ -1143,6 +1208,7 @@ impl Document {
         let extra_after = self.extra.clone();
         self.history.push(undo::Transaction {
             changes,
+            bookmark: None,
             cursor_before,
             anchor_before,
             cursor_after: self.cursor,
@@ -1185,6 +1251,9 @@ impl Document {
                 self.storage.insert(change.start, &change.removed);
             }
         }
+        if let Some(mark) = &tx.bookmark {
+            self.restore_bookmark(mark.line, &mark.before);
+        }
         self.cursor = tx.cursor_before.min(self.len_chars());
         self.anchor = tx.anchor_before;
         self.set_extra_carets(tx.extra_before);
@@ -1210,6 +1279,9 @@ impl Document {
                 self.storage.insert(change.start, &change.inserted);
             }
         }
+        if let Some(mark) = &tx.bookmark {
+            self.restore_bookmark(mark.line, &mark.after);
+        }
         self.cursor = tx.cursor_after.min(self.len_chars());
         self.anchor = tx.anchor_after;
         self.set_extra_carets(tx.extra_after);
@@ -1218,6 +1290,18 @@ impl Document {
         self.revision += 1;
         self.prune_bookmarks();
         true
+    }
+
+    /// Put one line's bookmark back the way `state` says it was.
+    fn restore_bookmark(&mut self, line: usize, state: &Option<String>) {
+        match state {
+            Some(caption) => {
+                self.bookmarks.insert(line, caption.clone());
+            }
+            None => {
+                self.bookmarks.remove(&line);
+            }
+        }
     }
 
     // ----------------------------------------------------------------- dirty
