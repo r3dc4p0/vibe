@@ -1035,11 +1035,11 @@ pub fn gutter_width(line_count: usize, cfg: &Config) -> u16 {
 
 /// Glyph drawn in the marker column of a bookmarked line.
 ///
-/// The column is the first one in the gutter, so the mark reads as a sign
-/// column ahead of the numbers. An emoji bookmark is not an option: it is two
-/// cells wide, so it would either push the numbers out of line or claim a second
-/// column that stays blank on every unbookmarked line.
-pub const BOOKMARK_MARKER: &str = "▌";
+/// A corner, so that with the caption's own corner on the row above it the pair
+/// brackets the line. An emoji bookmark is not an option: it is two cells wide,
+/// so it would either push the numbers out of line or claim a second column that
+/// stays blank on every unbookmarked line.
+pub const BOOKMARK_MARKER: &str = "└";
 
 /// Columns the marker column takes. See [`BOOKMARK_MARKER`].
 const MARKER_WIDTH: usize = 1;
