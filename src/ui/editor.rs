@@ -825,7 +825,15 @@ impl EditorRenderer<'_> {
                 } else {
                     Style::default().fg(theme.dim).bg(theme.bg)
                 };
-                buf.set_string(text_x, y, format!("  {caption}  "), style);
+                // The caption starts where the bracket ends, with no gap. The
+                // pixel style closes the bracket with the hairline, so the
+                // caption moves into the column of air after it; the block style
+                // has no hairline and the text edge is already flush.
+                let caption_x = match (show_numbers, self.cfg.ui_style()) {
+                    (true, UiStyle::Pixel) => text_x - 1,
+                    _ => text_x,
+                };
+                buf.set_string(caption_x, y, format!("{caption}  "), style);
                 continue;
             }
             let line = entry.line().expect("document row has a line");

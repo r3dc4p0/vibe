@@ -118,16 +118,17 @@ fn bookmark_gutter_highlight_can_be_bound_to_panel_visibility() {
             (0..gutter)
                 .any(|c| buffer[(area.x + c, y)].symbol() == vibe::ui::editor::BOOKMARK_MARKER)
         });
-        (
-            marked,
-            buffer[(area.x + gutter + 2, area.y)].symbol().to_string(),
-        )
+        let first_row: String = (0..80u16)
+            .map(|x| buffer[(x, area.y)].symbol().to_string())
+            .collect();
+        (marked, first_row)
     };
     assert!(app.ui.bookmarks.open, "creation opens the panel");
-    assert_eq!(
-        render_styles(&mut app),
-        (true, "b".to_string()),
-        "the marker and the caption are both drawn"
+    let (marked, row) = render_styles(&mut app);
+    assert!(marked, "the marker is drawn");
+    assert!(
+        row.contains("bookmark 1"),
+        "and the caption with it:\n{row}"
     );
 
     press(
@@ -135,11 +136,9 @@ fn bookmark_gutter_highlight_can_be_bound_to_panel_visibility() {
         KeyCode::Char('b'),
         KeyModifiers::CONTROL | KeyModifiers::SHIFT,
     );
-    assert_eq!(
-        render_styles(&mut app),
-        (false, "r".to_string()),
-        "closing the panel hides both the marker and the caption"
-    );
+    let (marked, row) = render_styles(&mut app);
+    assert!(!marked, "closing the panel hides the marker");
+    assert!(row.contains("first"), "and the caption:\n{row}");
     click(&mut app, area.x + gutter + 2, area.y);
     assert_eq!(cursor_1(&app), (1, 3));
 
@@ -148,7 +147,12 @@ fn bookmark_gutter_highlight_can_be_bound_to_panel_visibility() {
         KeyCode::Char('b'),
         KeyModifiers::CONTROL | KeyModifiers::SHIFT,
     );
-    assert_eq!(render_styles(&mut app), (true, "b".to_string()));
+    let (marked, row) = render_styles(&mut app);
+    assert!(marked, "the marker comes back with the panel");
+    assert!(
+        row.contains("bookmark 1"),
+        "and so does the caption:\n{row}"
+    );
 }
 
 #[test]
