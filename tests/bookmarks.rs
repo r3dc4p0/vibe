@@ -55,12 +55,12 @@ fn gutter_click_toggles_and_draws_the_marker() {
         .unwrap();
     let buffer = terminal.backend().buffer();
 
-    // The mark is a glyph in the column against the hairline, not a repaint of
-    // the gutter: the line number keeps its own background and stays readable.
-    // Line 1 sits one row lower than its line number suggests, because its
-    // caption occupies a row of its own above it.
+    // The mark is a glyph in the gutter's first column, ahead of the numbers,
+    // not a repaint of the gutter: the line number keeps its own background and
+    // stays readable. Line 1 sits one row lower than its line number suggests,
+    // because its caption occupies a row of its own above it.
     let rule_x = area.x + gutter - 2;
-    let marker = &buffer[(rule_x - 1, area.y + 2)];
+    let marker = &buffer[(area.x, area.y + 2)];
     assert_eq!(marker.symbol(), vibe::ui::editor::BOOKMARK_MARKER);
     assert_eq!(marker.fg, theme.mark);
     let number = (0..gutter)
