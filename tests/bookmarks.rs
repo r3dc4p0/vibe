@@ -69,6 +69,18 @@ fn gutter_click_toggles_and_draws_the_marker() {
         "and it is no longer painted as a filled block"
     );
 
+    // The caption hangs off the gutter: a corner under the marker column and a
+    // rule running out to the hairline, so the row reads as a bracket rather
+    // than as another line of the document.
+    let rule_x = area.x + gutter - 2;
+    assert_eq!(buffer[(area.x, area.y + 1)].symbol(), "┌");
+    assert_eq!(buffer[(rule_x - 1, area.y + 1)].symbol(), "─");
+    assert_eq!(
+        buffer[(rule_x, area.y + 1)].symbol(),
+        "▏",
+        "the hairline closes the bracket"
+    );
+
     // The unmarked line above has an empty marker column.
     assert_eq!(buffer[(area.x, area.y)].symbol(), " ");
 

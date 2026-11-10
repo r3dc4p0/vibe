@@ -127,7 +127,8 @@ place the insertion point; Esc returns focus to the editor without closing the
 panel. Backspace edits the caption, while Delete removes the selected bookmark.
 
 A non-empty caption is also shown in a visual-only row above its bookmarked
-line. It takes screen space but is not part of the document and is not saved.
+line, joined to the gutter by a rule so it reads as a bracket around the line.
+It takes screen space but is not part of the document and is not saved.
 Bookmarks are session-only and remain attached to their line numbers, not to
 the text; deleting enough lines to move one past the end removes it.
 Creating a bookmark opens the panel automatically.

@@ -796,6 +796,29 @@ impl EditorRenderer<'_> {
                 continue;
             };
             if let EditorRow::Bookmark { caption, .. } = entry {
+                // A caption hangs off the line it belongs to: a corner under the
+                // marker column, then a rule out to the hairline, so the row
+                // reads as a bracket around the line rather than as another
+                // line of the document. The pixel style lets the hairline close
+                // the bracket; the block style has no hairline, so its rule runs
+                // all the way to the text.
+                if show_numbers {
+                    let width = match self.cfg.ui_style() {
+                        UiStyle::Pixel => gutter_w.saturating_sub(2),
+                        UiStyle::Cell => gutter_w,
+                    } as usize;
+                    let mut rule = String::with_capacity(width);
+                    rule.push('┌');
+                    for _ in 1..width {
+                        rule.push('─');
+                    }
+                    buf.set_string(
+                        area.x,
+                        y,
+                        &rule,
+                        Style::default().fg(theme.gutter_fg).bg(theme.gutter_bg),
+                    );
+                }
                 let style = if self.bookmark_highlight {
                     Style::default().fg(theme.mark).bg(theme.overlay_bg)
                 } else {
