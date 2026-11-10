@@ -8,11 +8,11 @@ palette. It opens instantly, handles large files without stalling, and never
 loses your work.
 
 [Website](https://r3dc4p0.github.io/vibe/) · [Architecture](docs/architecture.md) ·
-[Key bindings](docs/keybindings.md) · [Roadmap](docs/roadmap.md) · **v0.8.1**
+[Key bindings](docs/keybindings.md) · [Roadmap](docs/roadmap.md) · **v0.9.0**
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│ VIBE · src/buffer/mod.rs ●                        2 buffers   v0.8.1 │
+│ VIBE · src/buffer/mod.rs ●                        2 buffers   v0.9.0 │
 │ ▏ storage.rs ▏ mod.rs ●                                              │
 │  1 ▏ use std::ops::Range;                                            │
 │  2 ▏                                                                 │
@@ -135,6 +135,15 @@ partial selection stays partial. Typing is answered from a fast first pass, and
 the rest of the file is scanned in the background once you press Enter or `F3`,
 so every match is reachable — including in files too large to scan per
 keystroke.
+
+**Bookmarks** — double-click a line-number gutter row and the line takes a `└` in
+the margin. `Ctrl+Shift+B` opens a panel listing every bookmark across open
+buffers, grouped by file: the arrow keys walk it, `Enter` jumps to the line,
+`Ctrl+Alt+B` moves focus between panel and editor without closing either, and
+typing edits the caption. A new one is named `bookmark 1`, `bookmark 2` and so
+on, and a caption that is not empty is drawn on a row above its line, joined to
+the gutter by a rule so the mark reads as a bracket around the code it names.
+That row takes screen space but is not part of the document and is never saved.
 
 **Navigation** — go to line/column, fuzzy file finder (`Ctrl+P`), command
 palette (`Ctrl+Shift+P`) grouped into sections by category — `↑`/`↓` step over

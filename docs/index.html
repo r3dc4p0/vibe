@@ -712,7 +712,7 @@
       <a href="#keys" class="hide-sm">Keys</a>
       <a href="#install">Install</a>
       <a href="https://github.com/r3dc4p0/vibe">GitHub&nbsp;&#8599;</a>
-      <span class="badge">v0.8.1</span>
+      <span class="badge">v0.9.0</span>
     </nav>
   </div>
 </header>
@@ -736,7 +736,7 @@
         <a class="btn btn-ghost" href="https://github.com/r3dc4p0/vibe">View source</a>
       </div>
       <p class="meta" style="margin-bottom:0">
-        Pre-release &mdash; v0.8.1
+        Pre-release &mdash; v0.9.0
       </p>
     </div>
   </section>
@@ -755,7 +755,7 @@
           <div class="term" role="img" aria-label="Screenshot of Vibe editing a Rust source file: a top bar, three buffer tabs, a line-number gutter, syntax-highlighted code, a status bar and a hint bar.">
             <div class="bar top">
               <span class="left">VIBE <span class="path">&middot; src/buffer/mod.rs</span> <span class="dot-mod">&#9679;</span></span>
-              <span class="right">3 buffers&nbsp;&nbsp;&nbsp;v0.8.1</span>
+              <span class="right">3 buffers&nbsp;&nbsp;&nbsp;v0.9.0</span>
             </div>
 
             <div class="tabs">
@@ -857,6 +857,11 @@
         <article class="card">
           <h3>Two files, one scroll</h3>
           <p><span class="inline-code">Alt+D</span> puts another file beside this one and lines the two up: a line that exists on only one side is drawn against a shaded gap on the other, so the columns never drift apart no matter how many lines were inserted. Removed lines are tinted on the left, added ones on the right. One scroll offset drives both, <span class="inline-code">]</span> and <span class="inline-code">[</span> step through the changes, and the alignment comes from 128-bit line fingerprints &mdash; a hundred thousand lines compare in about seventy milliseconds.</p>
+        </article>
+
+        <article class="card">
+          <h3>Marks you can name</h3>
+          <p>Double-click a gutter row and the line takes a <span class="inline-code">└</span> in the margin. <span class="inline-code">Ctrl+Shift+B</span> lists every bookmark across open buffers, grouped by file &mdash; arrow keys walk the list, <span class="inline-code">Enter</span> jumps. Give one a caption and it is drawn on a row above the line, joined to the gutter by a rule, so the mark reads as a bracket around the code. The caption is a rendering, never text: it costs a screen row and is never written to the file.</p>
         </article>
 
         <article class="card">
