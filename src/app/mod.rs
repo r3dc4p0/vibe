@@ -16,6 +16,7 @@ mod files;
 mod panes;
 mod prompts;
 mod recovery;
+mod watch;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -143,6 +144,18 @@ pub struct App {
     /// `(the buffer to compare with, the path being opened)`. Held rather than
     /// computed because a large file arrives from the worker thread later.
     pending_compare: Option<(usize, PathBuf)>,
+    /// Watches the directories that hold open files, when it is running.
+    ///
+    /// `None` in headless runs and when the platform refuses a backend; the
+    /// save-time check is the fallback, so nothing else has to know.
+    watcher: Option<crate::watch::DiskWatcher>,
+    /// Canonical path of every watched file → the document that has it open.
+    watched: HashMap<PathBuf, usize>,
+    /// Documents reported changed, and when the report arrived.
+    ///
+    /// A save arrives as a burst of events, so the file is read only once the
+    /// burst has been quiet for [`crate::watch::SETTLE`].
+    disk_pending: HashMap<usize, Instant>,
 }
 
 impl App {
@@ -182,6 +195,9 @@ impl App {
         // Whatever the last session left unsaved comes back before anything
         // else can overwrite it.
         app.recover_unsaved();
+
+        // Last, so that the files recovered above are watched too.
+        app.enable_disk_watch();
 
         // Surface configuration problems without blocking startup.
         let warnings = app.config_warnings.clone();
@@ -259,6 +275,9 @@ impl App {
             last_tabs_area: Rect::default(),
             frame: 0,
             persist: true,
+            watcher: None,
+            watched: HashMap::new(),
+            disk_pending: HashMap::new(),
         };
 
         // Key overrides from configuration.
@@ -470,6 +489,8 @@ impl App {
                 }
             }
         }
+        // Files that other programs wrote while the frame was being drawn.
+        self.poll_disk_events();
     }
 
     /// Finish the session: persist what should persist, drop what should not.

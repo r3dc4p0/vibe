@@ -41,6 +41,7 @@ tracing-appender = "0.2"
 # System integration
 arboard = { version = "3", default-features = false }
 dirs = "6"
+notify = "8"
 signal-hook = "0.3"
 
 # Text utilities

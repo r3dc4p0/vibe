@@ -1355,11 +1355,22 @@ impl Document {
 
     /// Move the cursor to a zero-based line and column.
     pub fn goto_line_col(&mut self, line: usize, col: usize) {
+        self.place_cursor(line, col);
+        let line = self.storage.line_of_char(self.cursor);
+        self.center_scroll(line);
+    }
+
+    /// Put the caret at a zero-based line and column without moving the view.
+    ///
+    /// A jump centres its line, which is right for a jump and wrong for a
+    /// reload: the text changed underneath the viewport, and the viewport did
+    /// not. Clamping happens here rather than at the call site because a
+    /// reloaded file is very often shorter than the one it replaced.
+    pub fn place_cursor(&mut self, line: usize, col: usize) {
         let line = line.min(self.line_count().saturating_sub(1));
         let start = self.storage.line_start(line);
         let len = self.storage.line_slice(line).chars().count();
         self.set_cursor(start + col.min(len));
-        self.center_scroll(line);
     }
 
     /// Number of rows the UI last gave this buffer. Used to centre jumps.

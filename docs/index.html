@@ -863,6 +863,11 @@
         </article>
 
         <article class="card">
+          <h3>The file never goes stale</h3>
+          <p>Every open file is watched. When another program writes to it &mdash; a <span class="inline-code">git checkout</span>, a formatter, another editor &mdash; a buffer with nothing unsaved reloads itself within a frame or two, caret and scroll where you left them. A buffer with unsaved changes is never overwritten: it takes a <span class="inline-code">&#9888; changed on disk</span> in the status bar, and the save that would clobber it asks first. The watch is on the directory, not the file, so a save that lands as a rename is still seen.</p>
+        </article>
+
+        <article class="card">
           <h3>Undo you can trust</h3>
           <p>Transaction-based history with coalescing that restores cursor and selection. Replace-all, indent and trim are each one undo step.</p>
         </article>

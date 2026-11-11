@@ -21,6 +21,12 @@ Run `vibe --list-keys` to print the table for your current configuration.
 | `Ctrl+Q` | `app.quit` | Quit (asks when there are unsaved changes) |
 | `Ctrl+Shift+Q` | `app.quitAll` | Save all and quit |
 
+Every open file is watched. When another program writes to it, a buffer with no
+unsaved changes reloads itself and keeps the caret and the scroll where they
+were; a buffer with unsaved changes is never overwritten — it takes a
+`⚠ changed on disk` in the status bar, and `Ctrl+Shift+R` is the reload once you
+have decided. Turn the watch off with `files.watch_external_changes = false`.
+
 ## Editing
 
 | Key | Command id | Action |

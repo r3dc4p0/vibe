@@ -41,6 +41,7 @@ ever point one way.
 | `commands` | The `Command` enum: ids, titles, categories, default keys |
 | `search` | Query model, match set, regex and literal search, replacement |
 | `filesystem` | Loading, encoding/EOL detection, atomic saving |
+| `watch` | Filesystem watcher over the directories that hold open files |
 | `config` | TOML schema, defaults, validation |
 | `theme` | Colour palettes and overrides |
 | `ui` | Layout, editor rendering, chrome, overlays, messages |
@@ -157,6 +158,38 @@ editor never claims a save it did not perform.
 
 The file's EOL style and encoding are properties of the document, applied on
 write, so a CRLF file stays CRLF after editing.
+
+### Watching a file that someone else is writing
+
+Saves are atomic, and so is almost everything else that writes a file: `git`,
+`cargo fmt`, `sed -i` and most editors all write a temporary file and rename it
+over the target. A watch on the file's inode would therefore go silent at the
+exact moment it is needed — the inode it was watching is now an unlinked file in
+`/tmp`. `watch::DiskWatcher` watches the *directory* instead and lets the path
+do the matching, which survives the rename.
+
+Events are not acted on immediately. One save arrives as a burst — create,
+write, write, close — and reading after the first of those would install a
+half-written file. The app holds the path for `watch::SETTLE` (200 ms) after the
+last event and reads it once the burst has gone quiet, which also collapses the
+several events of a single save into one reload.
+
+What a change means is decided in `app::watch`, not in the watcher:
+
+- a buffer with no unsaved changes **follows the file**. The disk is the truth
+  and the user has nothing invested in the old text, so it reloads in place,
+  keeping the caret's line and column and the scroll position;
+- a buffer with unsaved changes is **flagged, never reloaded**. Those edits are
+  the only copy of themselves. The status bar carries `⚠ changed on disk` and
+  the existing save-time confirmation offers the choice;
+- a file that is deleted is flagged the same way, and the text stays.
+
+Every branch records the new metadata as it goes, so the watcher's own view of
+a save the editor just performed compares equal and produces no reload. The
+watcher is optional: `DiskWatcher::new` failing (no backend, no inotify
+descriptors left) downgrades the editor to the save-time check it always had,
+and `App::check_files_on_disk` runs the same reconciliation without a watcher
+for filesystems that cannot be watched at all.
 
 ### Streaming search
 

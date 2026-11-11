@@ -232,6 +232,11 @@ impl App {
         self.search.clear();
         // A comparison may have been waiting for this file to finish loading.
         self.finish_pending_compare(&path, idx);
+        // The buffer exists before it is watched, so a change that lands while
+        // it is being installed is still seen: the watcher reports the path,
+        // and the lookup happens later, when the document is here to find.
+        let id = self.buffers[idx].id();
+        self.track_path(id, &path);
 
         if opened.mixed_eol {
             self.warn(format!(
@@ -348,6 +353,7 @@ impl App {
         }
         let id = self.buffers[idx].id();
         self.syntax_cache.remove(&id);
+        self.untrack_path(id);
         self.buffers.remove(idx);
 
         self.after_buffer_removed(idx);
@@ -525,6 +531,13 @@ impl App {
         self.buffers[idx].set_path(Some(path.clone()));
         // A new path means the previous disk metadata is meaningless.
         self.buffers[idx].set_disk_meta(None, None);
+        // The watch follows the file, not the buffer: the old directory has no
+        // further claim on this document, and the new one has all of it. This
+        // is done before the write, because a failed save still leaves the
+        // buffer pointing at the new name.
+        let id = self.buffers[idx].id();
+        self.untrack_path(id);
+        self.track_path(id, &path);
         self.write_buffer(idx, true)
     }
 
@@ -554,20 +567,38 @@ impl App {
     }
 
     pub(crate) fn reload_buffer(&mut self, idx: usize, path: &Path) {
-        match filesystem::load(path) {
-            Ok(loaded) => {
-                let doc = &mut self.buffers[idx];
-                doc.reset_contents(&loaded.text);
-                doc.set_eol(loaded.eol);
-                doc.set_encoding(loaded.encoding, loaded.bom);
-                doc.set_disk_meta(loaded.mtime, Some(loaded.len));
-                doc.set_externally_modified(false);
-                doc.mark_saved();
-                self.syntax_cache.remove(&doc.id());
-                self.success(format!("Reloaded {}", path.display()));
-            }
+        match self.load_into(idx, path) {
+            Ok(()) => self.success(format!("Reloaded {}", path.display())),
             Err(e) => self.error(e.user_message()),
         }
+    }
+
+    /// Replace a buffer's text with the file's, keeping the caret in place.
+    ///
+    /// Shared by the manual reload and by the watcher: both mean "the file is
+    /// the truth now". The caret keeps its line and column, not its offset,
+    /// because the viewport is what has to stay still — a reload that scrolls
+    /// or jumps reads as the editor having done something, when all it did was
+    /// agree with the disk.
+    pub(crate) fn load_into(&mut self, idx: usize, path: &Path) -> crate::Result<()> {
+        let loaded = filesystem::load(path)?;
+        let doc = &mut self.buffers[idx];
+        let (line, col) = doc.cursor_line_col();
+        doc.reset_contents(&loaded.text);
+        doc.place_cursor(line, col);
+        doc.set_eol(loaded.eol);
+        doc.set_encoding(loaded.encoding, loaded.bom);
+        doc.set_disk_meta(loaded.mtime, Some(loaded.len));
+        doc.mark_saved();
+        let id = doc.id();
+        // The lexer state describes text that no longer exists.
+        self.syntax_cache.remove(&id);
+        self.brackets_cache = None;
+        // Matches found in the old text point at lines that may not be there.
+        if self.active_index() == Some(idx) && !self.search.query.is_empty() {
+            self.search.refresh(&self.buffers[idx]);
+        }
+        Ok(())
     }
 
     // ------------------------------------------------------------- quitting

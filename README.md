@@ -111,8 +111,8 @@ is a badge. If you prefer the older block-glyph chrome, `Ctrl+Shift+U`,
 **Files** — multiple buffers with tabs; atomic saves (temp file + `fsync` +
 `rename`) that preserve permissions and symlinks; UTF-8/UTF-16 with BOM
 detection; LF/CRLF/CR line endings detected per file and written back unchanged;
-binary files refused rather than corrupted; external-modification detection;
-recent files; session restore. Unsaved buffers are copied to the data directory
+binary files refused rather than corrupted; recent files; session restore.
+Unsaved buffers are copied to the data directory
 a second after they change, so a crash, a `kill` or a closed terminal does not
 take them with it — the next start brings them back, dirty, at the cursor they
 had. A clean exit discards the copy, because by then you have been asked.
@@ -120,6 +120,18 @@ had. A clean exit discards the copy, because by then you have been asked.
 Big files open on a worker thread behind a progress panel that counts the
 bytes actually read, so the window keeps painting while a two-gigabyte file
 loads.
+
+**Live changes** — every open file is watched, so a file written by another
+program does not stay wrong on screen until you save over it. A buffer with no
+unsaved changes follows the file — a `git checkout`, a formatter, another
+editor — and reloads itself within a frame or two, keeping the caret and the
+scroll where they were. A buffer with unsaved changes is never overwritten: it
+takes a `⚠ changed on disk` in the status bar, and the save that would clobber
+it asks first. The watch is on the directory rather than the file, because the
+ordinary way to write a file is to write a temporary one and rename it over the
+original — a watch on the file itself would fall silent exactly when it matters.
+`files.watch_external_changes = false` turns it off, and a filesystem that
+cannot be watched falls back to the check made at save time.
 
 **Clipboard** — a copy leaves the editor: the OS pasteboard when there is one,
 and otherwise the terminal's own clipboard through OSC 52, which is the only

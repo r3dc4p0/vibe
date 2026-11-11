@@ -23,6 +23,7 @@
 //! | [`clipboard`]  | system clipboard with internal fallback                    |
 //! | [`syntax`]     | lightweight incremental line lexer                         |
 //! | [`terminal`]   | terminal setup/teardown and capability detection           |
+//! | [`watch`]      | filesystem watcher for changes made by other programs      |
 //! | [`logging`]    | file based diagnostics                                     |
 
 pub mod app;
@@ -48,6 +49,7 @@ pub mod syntax;
 pub mod terminal;
 pub mod theme;
 pub mod ui;
+pub mod watch;
 
 pub use error::{Error, Result};
 

@@ -95,6 +95,11 @@ trim_trailing_whitespace = false
 ensure_final_newline = false
 # Warn before overwriting a file that changed on disk since it was opened.
 warn_external_change = true
+# Watch open files and follow them when another program writes to them. A
+# buffer with no unsaved changes reloads itself; one with changes is flagged in
+# the status bar and left alone. Off, a foreign change is only noticed when the
+# buffer is saved over.
+watch_external_changes = true
 # Keep a copy of the unsaved buffers under the data directory, so a crash or a
 # killed terminal cannot lose them. A clean exit throws the copy away.
 recover_unsaved = true

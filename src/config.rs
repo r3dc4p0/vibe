@@ -208,6 +208,11 @@ pub struct FileSettings {
     pub ensure_final_newline: bool,
     /// Warn when the file changed on disk before overwriting it.
     pub warn_external_change: bool,
+    /// Watch open files and follow them when another program writes to them.
+    ///
+    /// A clean buffer reloads itself; a modified one is flagged and left
+    /// alone. Off, the only detection is the check made at save time.
+    pub watch_external_changes: bool,
     /// Keep a copy of the unsaved buffers, so a crash cannot lose them.
     pub recover_unsaved: bool,
     /// Number of recent files to remember.
@@ -222,6 +227,7 @@ impl Default for FileSettings {
             trim_trailing_whitespace: false,
             ensure_final_newline: false,
             warn_external_change: true,
+            watch_external_changes: true,
             recover_unsaved: true,
             recent_files: 20,
             find_root: None,
