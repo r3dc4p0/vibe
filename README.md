@@ -14,16 +14,17 @@ loses your work.
 ┌──────────────────────────────────────────────────────────────────────┐
 │ VIBE · src/buffer/mod.rs ●                        2 buffers   v0.9.2 │
 │ ▏ storage.rs ▏ mod.rs ●                                              │
-│  1 ▏ use std::ops::Range;                                            │
-│  2 ▏                                                                 │
-│  3 ▏ /// A text buffer backed by a rope.                             │
-│  4 ▏ pub struct Document {                                           │
-│  5 ▏     storage: Box<dyn TextStorage>,                              │
-│  6 ▏     cursor: usize,                                              │
-│  7 ▏     history: History,                                           │
-│  8 ▏ }                                                               │
-│    ▏ ~                                                               │
-│    ▏ ~                                                               │
+│   1 ▏ use std::ops::Range;                                           │
+│   2 ▏                                                                │
+│   3 ▏ /// A text buffer backed by a rope.                            │
+│┌────▏bookmark_2                                                      │
+│ └ 4 ▏ pub struct Document {                                          │
+│   5 ▏     storage: Box<dyn TextStorage>,                             │
+│   6 ▏     cursor: usize,                                             │
+│   7 ▏     history: History,                                          │
+│   8 ▏ }                                                              │
+│     ▏ ~                                                              │
+│     ▏ ~                                                              │
 │ ● Rust  LF  UTF-8  Spaces: 4                      Ln 4, Col 12   12% │
 │ Ctrl+s save   ·   Ctrl+f find   ·   Ctrl+p open file   ·   F1 help   │
 └──────────────────────────────────────────────────────────────────────┘

@@ -30,6 +30,7 @@
     --blue: #7ab8d8;
     --green: #8fbf7f;
     --violet: #b092d0;
+    --mark: #c8a05a;
     --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
     --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
     --maxw: 1080px;
@@ -333,9 +334,30 @@
     padding-right: 14px;
     color: #3d4654;
     user-select: none;
+    position: relative;
   }
   .term .gutter.cur { color: var(--fg-faint); }
   .term .code-body { padding-right: 18px; }
+
+  /* The bookmark mark sits in the gutter's first column, ahead of the numbers,
+     so the numbers stay put whether or not a line is marked. */
+  .term .gutter .mk { position: absolute; left: 0; color: var(--mark); }
+
+  /* A caption hangs off the gutter: a corner, a rule out to the text edge, and
+     the name where the code would start. It takes a row of its own and gives
+     it back the moment the panel is closed. */
+  .term .row.caption .gutter { text-align: left; color: var(--mark); }
+  .term .row.caption .gutter::after {
+    content: "";
+    position: absolute;
+    left: 1ch;
+    right: 0;
+    top: 50%;
+    height: 1px;
+    background: currentColor;
+    opacity: 0.55;
+  }
+  .term .row.caption .code-body { color: var(--mark); }
 
   .term .row.cursorline { background: rgba(122, 184, 216, 0.045); }
   .term .row.cursorline .gutter { color: var(--accent); }
@@ -752,7 +774,7 @@
         </div>
 
         <div class="term-scroll">
-          <div class="term" role="img" aria-label="Screenshot of Vibe editing a Rust source file: a top bar, three buffer tabs, a line-number gutter, syntax-highlighted code, a status bar and a hint bar.">
+          <div class="term" role="img" aria-label="Screenshot of Vibe editing a Rust source file: a top bar, three buffer tabs, a line-number gutter with a bookmark mark and its caption row, syntax-highlighted code, a status bar and a hint bar.">
             <div class="bar top">
               <span class="left">VIBE <span class="path">&middot; src/buffer/mod.rs</span> <span class="dot-mod">&#9679;</span></span>
               <span class="right">3 buffers&nbsp;&nbsp;&nbsp;v0.9.2</span>
@@ -774,7 +796,8 @@
               <div class="row"><span class="gutter">7</span><span class="code-body">    history<span class="op">:</span> <span class="ty">History</span><span class="op">,</span></span></div>
               <div class="row"><span class="gutter">8</span><span class="code-body"><span class="op">}</span></span></div>
               <div class="row"><span class="gutter">9</span><span class="code-body"></span></div>
-              <div class="row"><span class="gutter">10</span><span class="code-body"><span class="kw">impl</span> <span class="ty">Document</span> <span class="op">{</span></span></div>
+              <div class="row caption"><span class="gutter">┌</span><span class="code-body">bookmark_2</span></div>
+              <div class="row"><span class="gutter"><span class="mk">└</span>10</span><span class="code-body"><span class="kw">impl</span> <span class="ty">Document</span> <span class="op">{</span></span></div>
               <div class="row"><span class="gutter">11</span><span class="code-body">    <span class="kw">pub fn</span> <span class="fn">insert</span><span class="op">(&amp;</span><span class="kw">mut</span> self<span class="op">,</span> at<span class="op">:</span> <span class="ty">usize</span><span class="op">,</span> text<span class="op">:</span> <span class="op">&amp;</span><span class="ty">str</span><span class="op">)</span> <span class="op">{</span></span></div>
               <div class="row"><span class="gutter">12</span><span class="code-body">        <span class="kw">let</span> tx <span class="op">=</span> self<span class="op">.</span>history<span class="op">.</span><span class="fn">begin</span><span class="op">(</span><span class="ty">TxKind</span><span class="op">::</span><span class="ty">Insert</span><span class="op">);</span></span></div>
               <div class="row"><span class="gutter">13</span><span class="code-body">        self<span class="op">.</span>storage<span class="op">.</span><span class="fn">insert</span><span class="op">(</span>at<span class="op">,</span> text<span class="op">);</span></span></div>
@@ -801,7 +824,7 @@
           </div>
         </div>
       </div>
-      <p class="caption">The actual interface &mdash; gutter, tabs, syntax highlighting, status bar, contextual hints.</p>
+      <p class="caption">The actual interface &mdash; gutter, tabs, a bookmark and its caption, syntax highlighting, status bar, contextual hints.</p>
     </div>
   </section>
 
@@ -910,6 +933,8 @@
         <div class="key-row"><span class="what">Word wrap</span><span class="combo"><kbd>Alt</kbd> <kbd>W</kbd></span></div>
         <div class="key-row"><span class="what">Show whitespace</span><span class="combo"><kbd>Alt</kbd> <kbd>Z</kbd></span></div>
         <div class="key-row"><span class="what">Indent guides</span><span class="combo"><kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>G</kbd></span></div>
+        <div class="key-row"><span class="what">Bookmark panel</span><span class="combo"><kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>B</kbd></span></div>
+        <div class="key-row"><span class="what">Focus bookmarks</span><span class="combo"><kbd>Ctrl</kbd> <kbd>Alt</kbd> <kbd>B</kbd></span></div>
         <div class="key-row"><span class="what">Set indentation</span><span class="combo"><kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>I</kbd></span></div>
         <div class="key-row"><span class="what">Compare files</span><span class="combo"><kbd>Alt</kbd> <kbd>D</kbd></span></div>
         <div class="key-row"><span class="what">Split pane</span><span class="combo"><kbd>Ctrl</kbd> <kbd>\</kbd></span></div>
