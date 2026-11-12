@@ -165,6 +165,18 @@ typed and then the bookmark itself; none of it marks the file modified.
 Emptying a name and pressing backspace asks `delete?` rather than removing the
 bookmark on the spot.
 
+**Folding** — `Alt+F` collapses the block under the cursor and `Alt+F` opens it
+again. A block is found by indentation rather than by a parser, so folding works
+in every language the editor can open and needs no grammar to be right; the
+closing brace stays visible, because it is the line that says where the block
+ends. A collapsed block keeps its header, marked `▸` in the gutter and closed
+with `⋯ n` where the text stops — `n` being the lines that went away — and a
+click on that gutter column does the same thing as the key. The caret cannot go
+where nothing is drawn: down steps over the fold, up lands on the header, and a
+jump to a hidden line opens it. Folding is view state, never text, so it is not
+saved, does not mark the buffer modified and is not an undo step. `Ctrl+Shift+E`
+opens everything.
+
 **Navigation** — go to line/column, fuzzy file finder (`Ctrl+P`), command
 palette (`Ctrl+Shift+P`) grouped into sections by category — `↑`/`↓` step over
 the separators, `→`/`←` jump between sections, and typing flattens the list so
@@ -238,6 +250,7 @@ The essentials:
 | `Alt+D` | Compare with another file |
 | `]` / `[` | Next / previous change (in the diff view) |
 | `Ctrl+Shift+B` / `Ctrl+Alt+B` | Bookmark panel / move focus to it |
+| `Alt+F` / `Ctrl+Shift+E` | Fold the block under the cursor / open every fold |
 | `F1` | Help |
 | `F2` | Which keys reach Vibe — the report below, with a live echo |
 

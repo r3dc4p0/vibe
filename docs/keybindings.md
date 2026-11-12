@@ -121,6 +121,7 @@ section.
 | Wheel left / right | Scroll four columns (terminals that report it) |
 | Click a tab | Switch to that buffer |
 | Click a hint in the bottom bar | Run it — the bar is a row of buttons |
+| Click the gutter's fold column | Collapse or expand the block on that line (see below) |
 
 ## Bookmarks
 
@@ -177,6 +178,40 @@ the help screen — for a trackpad, a touchscreen or anyone who has not learned
 the keys yet. The bar only shows buttons for the mode it is in: while a palette
 or a prompt is open the hints describe keys, and there is nothing to press.
 
+## Folding
+
+`Alt+F` collapses the block under the cursor, and `Alt+F` again opens it. A
+block is found by indentation, which every language has and no parser is needed
+for: the fold runs while the following lines are deeper than the line it starts
+on, and stops at the first line that is not. Blank lines inside the block belong
+to it; the blank lines after it do not, so the gap that separates a function
+from the next one stays on screen.
+
+A closing brace at the header's own indentation is deliberately left visible:
+it is the line that says where the block ends, so hiding it would defeat the
+point of collapsing the body.
+
+A collapsed block leaves its header line behind, marked with `▸` in the gutter
+and closed with `⋯ n` where the text stops, `n` being the number of lines that
+went away. A click on that gutter column toggles the block, and never reaches
+the bookmark gesture underneath it — a click that folds the file would otherwise
+be the first half of a double-click.
+
+The caret cannot go where nothing is drawn. Moving down steps over a collapsed
+block and lands on the line after it; moving up lands on the header. A jump that
+names a hidden line — a bookmark, a search match, go-to-line — opens the fold
+instead of landing on its header, because asking to go somewhere is asking to
+see it.
+
+Folding is view state, not text: it is never saved, never marks the buffer
+modified, and is not an undo step, so `Ctrl+Z` still takes back the last thing
+you typed. It does follow the text, though — a line inserted above a fold
+carries it down, one inserted inside it grows it — and a fold the edit swallowed
+is dropped. `Ctrl+Shift+E` opens every fold in the buffer.
+
+Folds are kept per buffer, not per pane, so two panes on the same file fold it
+the same way.
+
 ## Navigation
 
 | Key | Command id | Action |
@@ -229,6 +264,8 @@ brings them back.
 | `Ctrl+Shift+G` | `view.toggleIndentGuides` | Rule between indentation blocks on / off |
 | `Alt+Z` | `view.toggleWhitespace` | Show tabs, spaces and control characters |
 | `Alt+W` | `view.toggleWordWrap` | Wrap long lines at the window width |
+| `Alt+F` | `view.toggleFold` | Collapse or expand the block under the cursor |
+| `Ctrl+Shift+E` | `view.unfoldAll` | Expand every fold in the buffer |
 | `Ctrl+Shift+B` | `view.toggleBookmarkPanel` | Open or close the bookmark panel |
 | `Ctrl+Alt+B` | `view.focusBookmarkPanel` | Focus the bookmark panel or return to the editor |
 | — | `view.closeDiff` | Close the comparison view |

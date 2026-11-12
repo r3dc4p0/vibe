@@ -20,7 +20,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::Frame;
 
 use crate::buffer::motion::{char_width, visual_col_of};
-use crate::buffer::{Document, LayoutCache, LineLayout, Segment, TextStorage, WHOLE_LINE_LIMIT};
+use crate::buffer::{Document, LayoutCache, LineLayout, Segment, WHOLE_LINE_LIMIT};
 use crate::config::{Config, UiStyle};
 use crate::search::SearchState;
 use crate::syntax::{self, StateCache, Token};
@@ -153,6 +153,16 @@ struct PaintCtx<'a> {
     left: usize,
 }
 
+/// What painting one row produced.
+struct Painted {
+    /// Where the cursor landed, when it is on this row.
+    cursor: Option<Position>,
+    /// First column after the text that was written.
+    end_x: u16,
+    /// The line continued past the right edge.
+    truncated: bool,
+}
+
 /// Paint one line into `row`. Returns the screen position of the cursor when it
 /// is on this line.
 ///
@@ -170,7 +180,7 @@ fn paint_line(
     chars: &[char],
     tokens: &[Token],
     row_wrapped: bool,
-) -> Option<Position> {
+) -> Painted {
     let theme = ctx.theme;
     let right = ctx.text_x + ctx.text_w as u16;
 
@@ -324,13 +334,18 @@ fn paint_line(
     // row never does — what does not fit is on the next row — so the marker
     // only appears for the unwrapped view and for a row of a line too long to
     // wrap at all.
-    if ci < chars.len() && right > ctx.text_x && !row_wrapped {
+    let truncated = ci < chars.len() && right > ctx.text_x && !row_wrapped;
+    if truncated {
         buf[(right - 1, row)]
             .set_symbol("›")
             .set_style(Style::default().fg(theme.dim).bg(theme.bg));
     }
 
-    cursor_pos
+    Painted {
+        cursor: cursor_pos,
+        end_x: x,
+        truncated,
+    }
 }
 
 /// One painted row of the editor.
@@ -371,23 +386,26 @@ impl EditorRow {
 /// paints `~` for whatever is missing.
 fn fill_rows(
     cache: &mut LayoutCache,
-    storage: &dyn TextStorage,
+    doc: &Document,
     top: usize,
     sub: usize,
     rows: usize,
-    bookmarks: &std::collections::BTreeMap<usize, String>,
     show_bookmark_annotations: bool,
 ) -> Vec<EditorRow> {
+    let storage = doc.storage();
+    let bookmarks = doc.bookmarks();
+    let folds = doc.folds();
     let mut out = Vec::with_capacity(rows);
     let line_count = storage.len_lines();
     if line_count == 0 {
         return out;
     }
     if !cache.wraps() {
-        for row in 0..rows {
-            let line = top + row;
-            if line >= line_count {
-                break;
+        let mut line = top.min(line_count);
+        while out.len() < rows && line < line_count {
+            if folds.is_hidden(line) {
+                line += 1;
+                continue;
             }
             if let Some(caption) = bookmarks
                 .get(&line)
@@ -402,6 +420,7 @@ fn fill_rows(
                 }
             }
             out.push(EditorRow::Plain { line });
+            line += 1;
         }
         return out;
     }
@@ -409,6 +428,11 @@ fn fill_rows(
     let mut line = top.min(line_count - 1);
     let mut seg = sub;
     while out.len() < rows && line < line_count {
+        if folds.is_hidden(line) {
+            line += 1;
+            seg = 0;
+            continue;
+        }
         let Some(layout) = cache.layout(storage, line) else {
             // Too long to wrap: one row, painted through the plain path.
             if seg == 0 {
@@ -473,11 +497,10 @@ pub fn rows_for_document(
 ) -> Vec<EditorRow> {
     fill_rows(
         cache,
-        doc.storage(),
+        doc,
         doc.scroll_top(),
         doc.scroll_row(),
         rows,
-        doc.bookmarks(),
         show_bookmark_annotations,
     )
 }
@@ -592,7 +615,8 @@ impl EditorRenderer<'_> {
         let following = self.follows_cursor && !self.doc.view_detached();
         let (top, sub, left, visible) = {
             let storage = self.doc.storage();
-            let mut cache = LayoutCache::new(wrap_width, tab_width);
+            let folds = self.doc.folds();
+            let mut cache = LayoutCache::with_folds(wrap_width, tab_width, folds);
             let mut top = self.doc.scroll_top().min(line_count.saturating_sub(1));
             let mut sub = if wrap_width.is_some() {
                 self.doc.scroll_row()
@@ -660,11 +684,10 @@ impl EditorRenderer<'_> {
 
             let visible = fill_rows(
                 &mut cache,
-                storage,
+                self.doc,
                 top,
                 sub,
                 rows,
-                self.doc.bookmarks(),
                 self.bookmark_annotations,
             );
 
@@ -892,6 +915,18 @@ impl EditorRenderer<'_> {
                         Style::default().fg(theme.mark).bg(theme.gutter_bg),
                     );
                 }
+                // The fold marker goes in the column of air between the numbers
+                // and the rule, which is otherwise unused. It is the one place
+                // a second gutter mark fits without costing a column, and it
+                // puts the chevron against the text it collapses.
+                if self.doc.folds().hidden_at(line).is_some() {
+                    buf.set_string(
+                        area.x + (MARKER_WIDTH + digits) as u16,
+                        y,
+                        FOLD_MARKER,
+                        Style::default().fg(theme.mark).bg(theme.gutter_bg),
+                    );
+                }
                 buf.set_string(area.x + MARKER_WIDTH as u16, y, &s, style);
             }
 
@@ -943,7 +978,7 @@ impl EditorRenderer<'_> {
             }
 
             // Paint the row; the renderer owns row placement.
-            if let Some(pos) = paint_line(
+            let painted = paint_line(
                 buf,
                 &ctx,
                 y,
@@ -954,9 +989,24 @@ impl EditorRenderer<'_> {
                 &chars,
                 &scratch_tokens,
                 matches!(entry, EditorRow::Wrapped { .. }),
-            ) {
+            );
+            if let Some(pos) = painted.cursor {
                 if pos.x < area.x + area.width {
                     cursor_pos = Some(pos);
+                }
+            }
+            // A collapsed fold says so on the line that stands for it: how much
+            // went away, right where the code stops. The count is only drawn on
+            // the last row of the line and only when the line fits, because a
+            // truncated line has its own marker in the last column.
+            let ends_the_line = match entry {
+                EditorRow::Plain { .. } => true,
+                EditorRow::Wrapped { seg, layout, .. } => *seg + 1 == layout.height(),
+                EditorRow::Bookmark { .. } => false,
+            };
+            if ends_the_line {
+                if let Some(hidden) = self.doc.folds().hidden_count(line) {
+                    draw_fold_summary(buf, &ctx, y, painted.end_x, hidden, painted.truncated);
                 }
             }
 
@@ -981,6 +1031,36 @@ impl EditorRenderer<'_> {
             frame.set_cursor_position(pos);
         }
     }
+}
+
+/// Draw the `⋯ n` that closes a collapsed fold.
+///
+/// Skipped when the line was cut off at the right edge — the truncation marker
+/// owns that column — and when there is no room for the whole thing, because a
+/// count that has been sliced in half is worse than no count at all.
+fn draw_fold_summary(
+    buf: &mut Buffer,
+    ctx: &PaintCtx<'_>,
+    y: u16,
+    end_x: u16,
+    hidden: usize,
+    truncated: bool,
+) {
+    if truncated {
+        return;
+    }
+    let label = format!(" ⋯ {hidden}");
+    let width = label.chars().count() as u16;
+    let right = ctx.text_x + ctx.text_w as u16;
+    if end_x + width > right {
+        return;
+    }
+    buf.set_string(
+        end_x,
+        y,
+        &label,
+        Style::default().fg(ctx.theme.dim).bg(ctx.theme.bg),
+    );
 }
 
 /// Draw the rule for every enclosing indentation level.
@@ -1065,6 +1145,25 @@ pub const BOOKMARK_FOLDED_MARKER: &str = "▌";
 
 /// Columns the marker column takes. See [`BOOKMARK_MARKER`].
 const MARKER_WIDTH: usize = 1;
+
+/// Glyph drawn in the gutter of a line whose block is collapsed.
+///
+/// One cell, like the bookmark marks, and drawn in the column of air the gutter
+/// already leaves between the numbers and the rule — so a fold never costs a
+/// column and never moves the numbers.
+pub const FOLD_MARKER: &str = "▸";
+
+/// Column of the fold marker inside the editor area, when there is a gutter to
+/// draw it in.
+///
+/// A click there toggles the fold; the app needs the same answer the renderer
+/// used, so it is computed here rather than in either of them.
+pub fn fold_column(line_count: usize, cfg: &Config) -> Option<u16> {
+    if !cfg.editor.line_numbers {
+        return None;
+    }
+    Some((MARKER_WIDTH + decimal_digits(line_count).max(3)) as u16)
+}
 
 /// Number of decimal digits in `n` (at least 1).
 pub fn decimal_digits(n: usize) -> usize {

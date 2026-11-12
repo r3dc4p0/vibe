@@ -667,6 +667,19 @@ impl App {
                             self.show_bookmark_annotations(),
                         );
                         if let Some(line) = line {
+                            // The fold column is a button rather than part of
+                            // the gutter: one click opens or closes the block,
+                            // and it never reaches the bookmark gesture
+                            // underneath — a click that folds the file would
+                            // otherwise be the first half of a double-click.
+                            if crate::ui::editor::fold_column(
+                                self.buffers[index].line_count(),
+                                &self.config,
+                            ) == Some(mouse.column - area.x)
+                            {
+                                self.fold_at(line);
+                                return;
+                            }
                             if self.gutter_click_count(line, mouse.column, mouse.row) == 2 {
                                 self.toggle_active_bookmark(line);
                                 self.last_gutter_click = None;
@@ -1008,7 +1021,7 @@ impl App {
         let rows = self.buffers[idx].viewport_rows().max(1);
         let doc = &mut self.buffers[idx];
 
-        let mut cache = crate::buffer::LayoutCache::new(wrap, tab_width);
+        let mut cache = crate::buffer::LayoutCache::with_folds(wrap, tab_width, doc.folds());
         let (top, sub) = cache.shift(doc.storage(), doc.scroll_top(), doc.scroll_row(), delta);
         // Stop at the last full page rather than at the last row, so the buffer
         // never scrolls up into a screen of blank rows. The last page starts at
@@ -1019,6 +1032,17 @@ impl App {
         let mut max_sub = cache.height(doc.storage(), last).saturating_sub(1);
         let mut remaining = rows.saturating_sub(1);
         while remaining > 0 {
+            if cache.is_hidden(max_top) {
+                // A folded line is not a row, so stepping over it costs none of
+                // the page. Counting it would leave the last screen of a
+                // folded file unreachable.
+                if max_top == 0 {
+                    break;
+                }
+                max_top -= 1;
+                max_sub = cache.height(doc.storage(), max_top).saturating_sub(1);
+                continue;
+            }
             if max_sub > 0 {
                 max_sub -= 1;
                 remaining -= 1;
@@ -1436,6 +1460,8 @@ impl App {
                 ));
             }
             Command::ToggleWordWrap => self.toggle_word_wrap(),
+            Command::ToggleFold => self.toggle_fold(),
+            Command::UnfoldAll => self.unfold_all(),
             Command::ToggleBookmarkPanel => self.toggle_bookmark_panel(),
             Command::FocusBookmarkPanel => self.focus_bookmark_panel(),
             Command::WordCount => self.word_count(),
@@ -1672,6 +1698,48 @@ impl App {
             doc.attach_view();
         }
         self.info(format!("Word wrap {}", on_off(on)));
+    }
+
+    /// Fold or unfold the block under the cursor.
+    fn toggle_fold(&mut self) {
+        let tab_width = self.config.tab_width();
+        let Some(doc) = self.active_doc_mut() else {
+            return;
+        };
+        let (line, _) = doc.cursor_line_col();
+        let outcome = doc.toggle_fold(line, tab_width);
+        let hidden = doc.folds().hidden_count(line).unwrap_or(0);
+        match outcome {
+            Some(true) if hidden == 1 => self.info("Folded 1 line"),
+            Some(true) => self.info(format!("Folded {hidden} lines")),
+            Some(false) => self.info("Unfolded"),
+            None => self.info("Nothing to fold on this line"),
+        }
+    }
+
+    /// Fold or unfold a line, from a click on the gutter's fold column.
+    ///
+    /// Silent on a line that opens nothing: the pointer was aimed at a marker
+    /// that is not there, and a message for that would be noise.
+    fn fold_at(&mut self, line: usize) {
+        let tab_width = self.config.tab_width();
+        let Some(doc) = self.active_doc_mut() else {
+            return;
+        };
+        doc.toggle_fold(line, tab_width);
+    }
+
+    /// Expand every fold in the buffer — the way out of a file that has been
+    /// folded into something unrecognisable.
+    fn unfold_all(&mut self) {
+        let Some(doc) = self.active_doc_mut() else {
+            return;
+        };
+        match doc.unfold_all() {
+            0 => self.info("No folds to open"),
+            1 => self.info("Unfolded 1 block"),
+            n => self.info(format!("Unfolded {n} blocks")),
+        }
     }
 
     fn toggle_theme(&mut self) {

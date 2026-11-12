@@ -5,6 +5,7 @@
 //! rendering or key bindings, which is what makes the editing core testable in
 //! isolation (see `tests/editing_core.rs`).
 
+pub mod folds;
 pub mod motion;
 pub mod scan;
 pub mod storage;
@@ -20,6 +21,7 @@ use std::time::SystemTime;
 use crate::filesystem::{Encoding, Eol};
 use crate::syntax::Language;
 
+pub use folds::Folds;
 pub use motion::{Motion, MotionCtx};
 pub use storage::{RopeStorage, Snapshot, TextStorage};
 pub use undo::TxKind;
@@ -257,6 +259,12 @@ pub struct Document {
     indent: Option<crate::indent::IndentStyle>,
     /// Session-only bookmarks keyed by zero-based line number.
     bookmarks: BTreeMap<usize, String>,
+    /// Collapsed folds, keyed by the line that stays visible.
+    ///
+    /// View state rather than text: it is not saved, not undoable and does not
+    /// make the buffer dirty. It lives on the document rather than on the pane
+    /// so that two panes showing the same file fold it the same way.
+    folds: Folds,
 }
 
 impl Document {
@@ -286,6 +294,7 @@ impl Document {
             externally_modified: false,
             indent: None,
             bookmarks: BTreeMap::new(),
+            folds: Folds::new(),
         }
     }
 
@@ -408,6 +417,103 @@ impl Document {
             time: std::time::Instant::now(),
         });
         present
+    }
+
+    // ------------------------------------------------------------------ folds
+
+    /// The collapsed folds in this buffer.
+    pub fn folds(&self) -> &Folds {
+        &self.folds
+    }
+
+    pub fn is_line_hidden(&self, line: usize) -> bool {
+        self.folds.is_hidden(line)
+    }
+
+    /// Fold the block `line` opens, or unfold it if it is already folded.
+    ///
+    /// `Some(true)` folded, `Some(false)` unfolded, `None` when there is no
+    /// block to fold there. Not an undoable step and not a modification:
+    /// folding moves no text, and `Ctrl+Z` should take back the last thing the
+    /// user typed, not the last thing they looked at.
+    pub fn toggle_fold(&mut self, line: usize, tab_width: usize) -> Option<bool> {
+        if self.folds.remove(line) {
+            return Some(false);
+        }
+        let end = folds::block_end(self.storage.as_ref(), line, tab_width)?;
+        self.folds.insert(line, end);
+        // The caret cannot stay in a region that is no longer on screen.
+        self.settle_cursor(false);
+        Some(true)
+    }
+
+    /// Expand every fold. Returns how many there were.
+    pub fn unfold_all(&mut self) -> usize {
+        let count = self.folds.len();
+        self.folds.clear();
+        count
+    }
+
+    /// Move a caret that has landed inside a collapsed fold back onto the page.
+    ///
+    /// Travelling down it continues after the fold, because that is where the
+    /// motion was going; travelling up, and for a jump, it stops at the header,
+    /// which is the line that stands for the hidden region.
+    fn settle_cursor(&mut self, forward: bool) {
+        let line = self.storage.line_of_char(self.cursor);
+        let Some((start, end)) = self.folds.covering(line) else {
+            return;
+        };
+        let target = if forward {
+            (end + 1).min(self.line_count().saturating_sub(1))
+        } else {
+            start
+        };
+        // A fold that runs to the end of the buffer has nowhere to continue to;
+        // the header is still better than a line nobody can see.
+        let target = if self.folds.is_hidden(target) {
+            start
+        } else {
+            target
+        };
+        self.cursor = self.storage.line_start(target);
+        if forward {
+            self.preferred_col = None;
+        }
+    }
+
+    /// Drop folds that the text no longer has room for.
+    ///
+    /// Used after undo and redo, which replay a list of changes whose net
+    /// effect on the line numbers is not known until they have all landed.
+    /// A fold whose body has gone away is dropped rather than left pointing at
+    /// the end of the buffer.
+    fn prune_folds(&mut self) {
+        let last = self.line_count().saturating_sub(1);
+        let stale: Vec<usize> = self
+            .folds
+            .iter()
+            .filter(|(_, end)| *end > last)
+            .map(|(start, _)| start)
+            .collect();
+        for start in stale {
+            self.folds.remove(start);
+        }
+        self.settle_cursor(false);
+    }
+
+    /// Keep the folds in step with one edit.
+    ///
+    /// A single edit can be followed exactly: the newline count says how many
+    /// lines appeared or went, and where. A batch cannot — its edits are
+    /// expressed against the pre-edit document and shift one another — so a
+    /// batch that changes the line structure drops the folds instead of leaving
+    /// them pointing at text that has moved.
+    fn refold_after(&mut self, line: usize, col: usize, delta: isize) {
+        if delta != 0 {
+            self.folds.shift(line, col, delta, self.line_count());
+            self.settle_cursor(false);
+        }
     }
 
     fn prune_bookmarks(&mut self) {
@@ -602,10 +708,18 @@ impl Document {
     /// the first scroll after loading would freeze the UI to learn about text
     /// the user cannot see. Twenty rows are cheap enough to measure every frame.
     pub fn visible_width(&self, tab_width: usize, rows: usize) -> usize {
-        let first = self.scroll_top;
-        let last = (first + rows.max(1)).min(self.storage.len_lines());
+        let mut line = self.scroll_top;
+        let total = self.storage.len_lines();
         let mut widest = 0usize;
-        for line in first..last {
+        // `rows` *visible* lines, which is more lines than there are rows once
+        // some of them are folded away.
+        let mut seen = 0usize;
+        while line < total && seen < rows.max(1) {
+            if self.folds.is_hidden(line) {
+                line += 1;
+                continue;
+            }
+            seen += 1;
             let text = self.storage.line_slice(line);
             let len = text.chars().count();
             // Past the limit, measure by character count: expanding a huge line
@@ -617,13 +731,14 @@ impl Document {
                 len
             };
             widest = widest.max(width);
+            line += 1;
         }
         widest
     }
 
     /// Visual rows occupied by `line` when wrapped at `wrap_width`.
     pub fn line_height(&self, line: usize, wrap_width: Option<usize>, tab_width: usize) -> usize {
-        let mut cache = LayoutCache::new(wrap_width, tab_width);
+        let mut cache = LayoutCache::with_folds(wrap_width, tab_width, &self.folds);
         cache.height(self.storage.as_ref(), line)
     }
 
@@ -638,7 +753,7 @@ impl Document {
         tab_width: usize,
         rows: usize,
     ) -> usize {
-        let mut cache = LayoutCache::new(wrap_width, tab_width);
+        let mut cache = LayoutCache::with_folds(wrap_width, tab_width, &self.folds);
         cache
             .row_at(
                 self.storage.as_ref(),
@@ -663,6 +778,19 @@ impl Document {
         self.preferred_col = None;
         self.extra.clear();
         self.attach_view();
+        // A jump can name a line that is folded away — a bookmark, a search
+        // match, a go-to-line. Asking to go there is asking to see it, so the
+        // fold that hides it opens rather than the caret landing on its header
+        // and the line staying invisible.
+        self.reveal_cursor();
+    }
+
+    /// Open the fold that hides the cursor, if one does.
+    fn reveal_cursor(&mut self) {
+        let line = self.storage.line_of_char(self.cursor);
+        if let Some((start, _)) = self.folds.covering(line) {
+            self.folds.remove(start);
+        }
     }
 
     /// Move the cursor while keeping the anchor (used by mouse drags).
@@ -703,6 +831,7 @@ impl Document {
         // edge of its own selection; a caret whose cursor sits on the opposite
         // edge would otherwise move the wrong way and the group would drift.
         let backward = self.primary_caret().is_backward();
+        let before = self.cursor;
         let (next, col) = motion::apply(
             self.storage.as_ref(),
             self.cursor,
@@ -724,6 +853,10 @@ impl Document {
             self.cursor = next;
             self.anchor = None;
         }
+        // Landing inside a collapsed fold would move the caret somewhere the
+        // user cannot see. Downward the motion carries on past the fold, upward
+        // it stops on the header: in both cases it goes where the eye went.
+        self.settle_cursor(self.cursor > before);
         // A motion is the user taking the cursor somewhere, so the view stops
         // being detached and follows it again.
         self.attach_view();
@@ -963,6 +1096,13 @@ impl Document {
         let anchor_before = self.anchor;
         let extra_before = std::mem::take(&mut self.extra);
 
+        // Read before the text moves: a fold above the edit has to travel with
+        // it, and how far is the number of line breaks that appeared or went.
+        let changed_line = self.storage.line_of_char(start);
+        let changed_col = start - self.storage.line_start(changed_line);
+        let line_delta =
+            text.matches('\n').count() as isize - removed.matches('\n').count() as isize;
+
         if !removed.is_empty() {
             self.storage.remove(start, end);
         }
@@ -994,6 +1134,7 @@ impl Document {
             time: std::time::Instant::now(),
         });
         self.prune_bookmarks();
+        self.refold_after(changed_line, changed_col, line_delta);
         true
     }
 
@@ -1161,12 +1302,22 @@ impl Document {
         sorted.sort_by_key(|e| e.range.start);
 
         let mut changes = Vec::with_capacity(sorted.len());
+        // Where each edit stood before the text moved, for the folds. Recorded
+        // here because after the loop there is no pre-edit document left to ask.
+        let mut fold_steps: Vec<(usize, usize, isize)> = Vec::new();
         for edit in sorted.iter().rev() {
             let start = edit.range.start.min(self.len_chars());
             let end = edit.range.end.clamp(start, self.len_chars());
             let removed = self.storage.slice_chars(start, end);
             if removed == edit.text {
                 continue;
+            }
+            let delta =
+                edit.text.matches('\n').count() as isize - removed.matches('\n').count() as isize;
+            if delta != 0 {
+                let line = self.storage.line_of_char(start);
+                let col = start - self.storage.line_start(line);
+                fold_steps.push((line, col, delta));
             }
             if !removed.is_empty() {
                 self.storage.remove(start, end);
@@ -1205,6 +1356,11 @@ impl Document {
         self.attach_view();
         self.revision += 1;
 
+        // A batch is expressed against the pre-edit document, so its edits
+        // shift one another and there is no single line to hang a fold on. One
+        // edit is still exact — Enter, backspace and a paste all arrive here —
+        // so a single edit moves the folds and a real batch drops them: a fold
+        // hiding the wrong lines is worse than no fold.
         let extra_after = self.extra.clone();
         self.history.push(undo::Transaction {
             changes,
@@ -1219,6 +1375,12 @@ impl Document {
             time: std::time::Instant::now(),
         });
         self.prune_bookmarks();
+        match fold_steps.as_slice() {
+            [] => {}
+            &[(line, col, delta)] => self.folds.shift(line, col, delta, self.line_count()),
+            _ => self.folds.clear(),
+        }
+        self.settle_cursor(false);
         true
     }
 
@@ -1261,6 +1423,7 @@ impl Document {
         self.attach_view();
         self.revision += 1;
         self.prune_bookmarks();
+        self.prune_folds();
         true
     }
 
@@ -1289,6 +1452,7 @@ impl Document {
         self.attach_view();
         self.revision += 1;
         self.prune_bookmarks();
+        self.prune_folds();
         true
     }
 
@@ -1329,6 +1493,8 @@ impl Document {
         self.anchor = None;
         self.extra.clear();
         self.history = undo::History::default();
+        // The folds described text that no longer exists.
+        self.folds.clear();
         self.revision += 1;
         self.attach_view();
     }

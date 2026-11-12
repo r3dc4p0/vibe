@@ -108,6 +108,8 @@ pub enum Command {
     ToggleHints,
     ToggleCursorLine,
     ToggleWordWrap,
+    ToggleFold,
+    UnfoldAll,
     ToggleBookmarkPanel,
     FocusBookmarkPanel,
     WordCount,
@@ -182,6 +184,8 @@ impl Command {
         Command::ToggleHints,
         Command::ToggleCursorLine,
         Command::ToggleWordWrap,
+        Command::ToggleFold,
+        Command::UnfoldAll,
         Command::ToggleBookmarkPanel,
         Command::FocusBookmarkPanel,
         Command::WordCount,
@@ -254,6 +258,8 @@ impl Command {
             Command::ToggleHints => "view.toggleHints",
             Command::ToggleCursorLine => "view.toggleCursorLine",
             Command::ToggleWordWrap => "view.toggleWordWrap",
+            Command::ToggleFold => "view.toggleFold",
+            Command::UnfoldAll => "view.unfoldAll",
             Command::ToggleBookmarkPanel => "view.toggleBookmarkPanel",
             Command::FocusBookmarkPanel => "view.focusBookmarkPanel",
             Command::WordCount => "view.wordCount",
@@ -327,6 +333,8 @@ impl Command {
             Command::ToggleHints => "Toggle Shortcut Hints",
             Command::ToggleCursorLine => "Toggle Cursor Line Highlight",
             Command::ToggleWordWrap => "Toggle Word Wrap",
+            Command::ToggleFold => "Toggle Fold",
+            Command::UnfoldAll => "Unfold All",
             Command::ToggleBookmarkPanel => "Toggle Bookmark Panel",
             Command::FocusBookmarkPanel => "Focus Bookmark Panel",
             Command::WordCount => "Word Count",
@@ -399,6 +407,8 @@ impl Command {
             | Command::ToggleHints
             | Command::ToggleCursorLine
             | Command::ToggleWordWrap
+            | Command::ToggleFold
+            | Command::UnfoldAll
             | Command::ToggleBookmarkPanel
             | Command::FocusBookmarkPanel
             | Command::WordCount
@@ -474,6 +484,11 @@ impl Command {
             Command::ToggleWhitespace => &["alt+z"],
             Command::ToggleIndentGuides => &["ctrl+shift+g"],
             Command::ToggleWordWrap => &["alt+w"],
+            Command::ToggleFold => &["alt+f"],
+            // `ctrl+shift+e` rather than `alt+shift+f`: terminals that merge
+            // shift into alt would make the escape hatch unreachable exactly
+            // when a fold has gone wrong and it is needed.
+            Command::UnfoldAll => &["ctrl+shift+e"],
             Command::GotoBufferStart => &["ctrl+home"],
             Command::GotoBufferEnd => &["ctrl+end"],
             Command::WordCount => &["ctrl+shift+w"],
@@ -542,7 +557,7 @@ mod tests {
     fn all_variants_are_listed() {
         // Guards against forgetting to add a new variant to `ALL`, which would
         // make it invisible to the palette and the keymap builder.
-        assert_eq!(Command::ALL.len(), 67);
+        assert_eq!(Command::ALL.len(), 69);
     }
 
     #[test]

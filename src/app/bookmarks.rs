@@ -385,7 +385,8 @@ impl Document {
             .word_wrap
             .then_some(text_width)
             .filter(|w| *w > 0);
-        let mut cache = crate::buffer::LayoutCache::new(wrap_width, config.tab_width());
+        let mut cache =
+            crate::buffer::LayoutCache::with_folds(wrap_width, config.tab_width(), self.folds());
         let rows = crate::ui::editor::rows_for_document(
             self,
             &mut cache,

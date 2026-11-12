@@ -24,6 +24,7 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use super::folds::Folds;
 use super::motion::char_width;
 use super::storage::TextStorage;
 use super::WHOLE_LINE_LIMIT;
@@ -257,6 +258,9 @@ pub struct LayoutCache {
     width: Option<usize>,
     tab_width: usize,
     lines: HashMap<usize, Rc<LineLayout>>,
+    /// Lines hidden by a collapsed fold. A hidden line occupies no rows, which
+    /// is what makes every walk below skip it without knowing what a fold is.
+    folds: Folds,
 }
 
 impl LayoutCache {
@@ -265,12 +269,28 @@ impl LayoutCache {
             width,
             tab_width,
             lines: HashMap::new(),
+            folds: Folds::new(),
+        }
+    }
+
+    /// A cache that knows which lines are folded away.
+    pub fn with_folds(width: Option<usize>, tab_width: usize, folds: &Folds) -> Self {
+        Self {
+            width,
+            tab_width,
+            lines: HashMap::new(),
+            folds: folds.clone(),
         }
     }
 
     /// True when wrapping is in effect.
     pub fn wraps(&self) -> bool {
         self.width.is_some()
+    }
+
+    /// True when a collapsed fold hides this line.
+    pub fn is_hidden(&self, line: usize) -> bool {
+        self.folds.is_hidden(line)
     }
 
     /// The layout of `line`, or `None` when the line is not wrapped — either
@@ -293,8 +313,16 @@ impl LayoutCache {
         Some(layout)
     }
 
-    /// Visual rows occupied by `line`; 1 when it is not wrapped.
+    /// Visual rows occupied by `line`; 1 when it is not wrapped, 0 when a fold
+    /// hides it.
+    ///
+    /// Zero is the whole of the fold support in this file: every walk below
+    /// adds up heights, so a line that takes no rows is a line that does not
+    /// exist as far as scrolling, paging and hit-testing are concerned.
     pub fn height(&mut self, storage: &dyn TextStorage, line: usize) -> usize {
+        if self.folds.is_hidden(line) {
+            return 0;
+        }
         match self.layout(storage, line) {
             Some(layout) => layout.height(),
             None => 1,
@@ -355,6 +383,16 @@ impl LayoutCache {
         let mut remaining = delta;
         while remaining > 0 {
             let h = self.height(storage, top);
+            if h == 0 {
+                // Folded away. Stepping onto it is not a step on screen, so it
+                // costs none of the budget the gesture asked for.
+                if top < last {
+                    top += 1;
+                    sub = 0;
+                    continue;
+                }
+                break;
+            }
             if sub + 1 < h {
                 sub += 1;
             } else if top < last {
@@ -370,7 +408,11 @@ impl LayoutCache {
                 sub -= 1;
             } else if top > 0 {
                 top -= 1;
-                sub = self.height(storage, top).saturating_sub(1);
+                let h = self.height(storage, top);
+                if h == 0 {
+                    continue;
+                }
+                sub = h - 1;
             } else {
                 break;
             }
