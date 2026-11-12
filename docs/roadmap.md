@@ -28,17 +28,21 @@ Ordered by what a user notices first, not by what is easiest.
   opens a bracket pair onto three lines
 - Indent detection: each file's own indentation (tabs or spaces, and how many)
   is read at load and used by Tab, Shift+Tab, Enter and the pair expansion
+- Live external-change detection: every open file is watched through its parent
+  directory, so a clean buffer follows the file and a dirty one is flagged
+  instead of being overwritten
+- Clipboard routing: the OS pasteboard where there is one, OSC 52 where there is
+  not (SSH, tmux, containers), and an in-editor copy either way
 - Unit, integration, UI and property tests; Criterion benchmarks
 
 ## Next
 
-### 1. Live external-change notifications
+### 1. Line transforms
 
-Today a file changed by another process is detected when you save. A filesystem
-watcher (`notify`, watching the *parent* directory because saves are
-rename-based) should mark the buffer as externally modified within a second and
-offer reload/diff. Depends on: a small `Watcher` type owning the notify handle
-and feeding `App`'s existing job channel.
+Sort, dedupe, join, upper/lower, and the rest of the operations that are one
+keystroke in a shell and a hand-rolled regex here. Each is an `apply_batch`
+call, so it is one undo step already; what is missing is the commands and a menu
+to reach them from.
 
 ### 2. Incremental regex search on large files
 
@@ -54,8 +58,6 @@ resumable matcher would keep the same responsiveness as literal search.
   scripting for crash isolation; `Command` would need a dynamic variant.
 - **Git integration**: gutter markers and hunk staging, out of process.
 - **Terminal image protocols**: not planned; the editor is text-first.
-- **OSC 52 clipboard passthrough**: would fix copy over SSH where `arboard` has
-  no display to talk to.
 - **Splits in a tabbed layout, minimap, folding**: nice, not scheduled.
 
 ## Explicitly not planned

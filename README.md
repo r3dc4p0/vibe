@@ -237,6 +237,7 @@ The essentials:
 | `Alt+W` | Toggle word wrap |
 | `Alt+D` | Compare with another file |
 | `]` / `[` | Next / previous change (in the diff view) |
+| `Ctrl+Shift+B` / `Ctrl+Alt+B` | Bookmark panel / move focus to it |
 | `F1` | Help |
 | `F2` | Which keys reach Vibe — the report below, with a live echo |
 
@@ -339,8 +340,10 @@ in [docs/roadmap.md](docs/roadmap.md); the important ones:
   mis-colour unusual constructs (raw strings, nested comments) but never affects
   the text itself.
 - Regex search is not incremental on very large files (it rescans on demand).
-- Live external-change notifications require a manual save to be detected; a
-  filesystem watcher is on the roadmap.
+- No language server and no git: no diagnostics, completion or go-to-definition,
+  and nothing in the gutter says which lines you have changed since the last
+  commit. Both want an out-of-process client, which the job channel is ready
+  for.
 
 ## License
 
