@@ -265,3 +265,152 @@ fn the_last_screen_of_a_folded_file_is_still_reachable() {
         "the wheel reaches the end even with a fold in the way:\n{all}"
     );
 }
+
+#[test]
+fn a_search_match_inside_a_fold_opens_it() {
+    // A jump that names a line asks to see it: find-next landing on a match
+    // inside a collapsed fold opens the fold rather than parking the caret on
+    // a line with no rows.
+    let scratch = Scratch::new();
+    let mut app = fold_editor(&scratch);
+    type_str(&mut app, BLOCK);
+    app.active_doc_mut().unwrap().goto_line(0);
+    fold(&mut app);
+    assert!(app.active_doc().unwrap().is_line_hidden(2));
+
+    ctrl(&mut app, 'f');
+    ctrl(&mut app, 'u'); // clear the word Ctrl+F pre-filled
+    for ch in "two".chars() {
+        press(&mut app, KeyCode::Char(ch), KeyModifiers::NONE);
+    }
+
+    let doc = app.active_doc().unwrap();
+    assert!(!doc.is_line_hidden(2), "the fold opened for the match");
+    assert_eq!(doc.selected_text(), "two", "the match is what is selected");
+}
+
+#[test]
+fn undo_and_redo_take_a_fold_back_and_forth_with_the_text() {
+    let scratch = Scratch::new();
+    let mut app = fold_editor(&scratch);
+    type_str(&mut app, BLOCK);
+    app.active_doc_mut().unwrap().goto_line(0);
+    fold(&mut app);
+    assert_eq!(app.active_doc().unwrap().folds().hidden_at(0), Some(2));
+
+    // Enter at column zero pushes the header, and the fold with it, down one.
+    app.active_doc_mut().unwrap().goto_line_col(0, 0);
+    plain(&mut app, KeyCode::Enter);
+    assert_eq!(
+        app.active_doc().unwrap().folds().iter().collect::<Vec<_>>(),
+        vec![(1, 3)]
+    );
+
+    ctrl(&mut app, 'z');
+    assert_eq!(text(&app), BLOCK);
+    assert_eq!(
+        app.active_doc().unwrap().folds().iter().collect::<Vec<_>>(),
+        vec![(0, 2)],
+        "the fold returns with the text"
+    );
+    assert!(
+        !app.active_doc().unwrap().is_line_hidden(3),
+        "the closing brace is visible again"
+    );
+
+    ctrl(&mut app, 'y');
+    assert_eq!(
+        app.active_doc().unwrap().folds().iter().collect::<Vec<_>>(),
+        vec![(1, 3)],
+        "and redo puts it back where the break did"
+    );
+}
+
+#[test]
+fn deleting_the_header_line_drops_the_fold() {
+    // The fold follows its header by line number, and a deletion that takes
+    // the header's own line away leaves nothing for it to head. It dies
+    // rather than re-anchoring onto the line the deletion joined.
+    fn ctrl_shift_k(app: &mut vibe::app::App) {
+        press(
+            app,
+            KeyCode::Char('k'),
+            KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+        );
+    }
+    let scratch = Scratch::new();
+    let mut app = fold_editor(&scratch);
+    type_str(&mut app, "let a = 1;\nfn f() {\n    x;\n}\n");
+    app.active_doc_mut().unwrap().goto_line(1);
+    fold(&mut app);
+    assert_eq!(app.active_doc().unwrap().folds().hidden_at(1), Some(2));
+
+    ctrl_shift_k(&mut app);
+
+    assert_eq!(text(&app), "let a = 1;\n    x;\n}\n");
+    assert!(
+        app.active_doc().unwrap().folds().is_empty(),
+        "no fold without its header"
+    );
+}
+
+#[test]
+fn erasing_the_header_text_drops_the_fold_once_nothing_opens() {
+    // Backspacing through the header keeps the fold while the line still
+    // opens a block, and drops it the moment the header is gone.
+    let scratch = Scratch::new();
+    let mut app = fold_editor(&scratch);
+    type_str(&mut app, "let a = 1;\nfn f() {\n    x;\n}\n");
+    app.active_doc_mut().unwrap().goto_line(1);
+    fold(&mut app);
+
+    app.active_doc_mut().unwrap().goto_line_col(1, 8);
+    plain(&mut app, KeyCode::Backspace);
+    assert_eq!(text(&app), "let a = 1;\nfn f() \n    x;\n}\n");
+    assert_eq!(
+        app.active_doc().unwrap().folds().iter().collect::<Vec<_>>(),
+        vec![(1, 2)],
+        "a header that still opens its block keeps the fold"
+    );
+
+    for _ in 0..7 {
+        plain(&mut app, KeyCode::Backspace);
+    }
+
+    assert_eq!(text(&app), "let a = 1;\n\n    x;\n}\n");
+    assert!(
+        app.active_doc().unwrap().folds().is_empty(),
+        "a blank line heads nothing"
+    );
+}
+
+#[test]
+fn a_stacked_cursor_does_not_rest_inside_a_fold() {
+    // Stacking downward from a header would put the new caret on a hidden
+    // line, where everything typed lands on text nobody can see. It settles
+    // past the fold instead, the way a motion does.
+    fn ctrl_shift(app: &mut vibe::app::App, code: KeyCode) {
+        press(app, code, KeyModifiers::CONTROL | KeyModifiers::SHIFT);
+    }
+    fn caret_positions(app: &vibe::app::App) -> Vec<usize> {
+        let doc = app.active_doc().unwrap();
+        let mut positions = vec![doc.cursor()];
+        positions.extend(doc.extra_carets().iter().map(|caret| caret.pos));
+        positions
+    }
+
+    let scratch = Scratch::new();
+    let mut app = fold_editor(&scratch);
+    type_str(&mut app, BLOCK);
+    app.active_doc_mut().unwrap().goto_line(0);
+    fold(&mut app);
+    assert!(app.active_doc().unwrap().is_line_hidden(1));
+
+    ctrl_shift(&mut app, KeyCode::Down);
+
+    assert_eq!(
+        caret_positions(&app),
+        vec![0, 34],
+        "past the fold, not in it"
+    );
+}

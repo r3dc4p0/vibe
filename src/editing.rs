@@ -692,7 +692,10 @@ pub fn add_cursor_vertical(doc: &mut Document, down: bool, tab_width: usize) -> 
     };
 
     let col = visual_col_of(storage, storage.line_start(line), outer.pos, tab_width);
-    let new_pos = position_on_line(doc, target, col, tab_width);
+    // A caret stacked onto a line that is folded away would type into text
+    // nobody can see. It follows the same rule a motion does: downward
+    // continues after the fold, upward stops on the header.
+    let new_pos = doc.settle_caret_position(position_on_line(doc, target, col, tab_width), down);
 
     let new_anchor = outer.anchor.and_then(|anchor| {
         let anchor_line = storage.line_of_char(anchor);
@@ -705,7 +708,10 @@ pub fn add_cursor_vertical(doc: &mut Document, down: bool, tab_width: usize) -> 
             return None;
         }
         let anchor_col = visual_col_of(storage, storage.line_start(anchor_line), anchor, tab_width);
-        Some(position_on_line(doc, anchor_target, anchor_col, tab_width))
+        Some(doc.settle_caret_position(
+            position_on_line(doc, anchor_target, anchor_col, tab_width),
+            down,
+        ))
     });
 
     // A selection that could not be shifted line for line becomes a collapsed

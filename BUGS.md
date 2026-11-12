@@ -220,3 +220,110 @@ Note for the environment: stale `target/debug/build/*/build-script-build`
 artifacts carrying the `com.apple.provenance` xattr can make cargo fail with
 "failed to remove file … Operation not permitted". If that happens, build with
 `CARGO_TARGET_DIR=/tmp/vibe-target` instead of deleting files.
+
+---
+
+# Fold feature review (v0.11.0, commit 87e2b0f) — 2026-11-12
+
+> **FIXED 2026-11-12:** all four items below are fixed and re-verified —
+> check/clippy/fmt clean, **705 tests pass, 0 fail**, including five new
+> regression tests in `tests/folding.rs` (search-jump reveal, undo+redo fold
+> round-trip, header-line deletion ×2, stacked-caret settling).
+> - F1 ✅ — `select_range` reveals the fold at both ends of the jump.
+> - F2 ✅ — undo/redo replay each change's `(line, col, ±delta)` into the
+>   folds via `refold_after_replay`; single-change transactions shift exactly,
+>   multi-change ones clear (batch policy). Undo is the exact inverse of the
+>   forward shift, verified by test.
+> - F3 ✅ — `settle_extra_carets` runs wherever folds change; stacked carets
+>   settle through `settle_caret_position` in `add_cursor_vertical` and in
+>   `move_cursor`.
+> - F4 ✅ — two guards: a content-bearing removal at column zero of a fold
+>   header drops the fold (its text went with it), and `revalidate_headers`
+>   re-checks every fold whose header the edit touched, dropping those that
+>   no longer open a block.
+
+Review of `87e2b0f "Fold blocks of code, and keep the folds out of the file"`.
+Model (`src/buffer/folds.rs`) verified sound: `shift`'s moved/grown/untouched
+categorisation preserves the disjoint invariant in every branch. The bugs are
+in the integration. Gates at review time: check/clippy/fmt clean, **700 tests
+pass, 0 fail** — none of these are caught by the suite.
+
+## F1 — Search jumps do not open the fold they land in (HIGH)
+
+**File:** `src/buffer/mod.rs:919` (`select_range`), called from
+`src/app/prompts.rs:317`, `:389`, `:416` (find-next, replace jumps, match
+selection).
+
+The commit message promises "a jump that names one — a bookmark, a search
+match, go-to-line — opens the fold". Only bookmarks and go-to-line do: they go
+through `set_cursor`, which calls `reveal_cursor`. The search path goes through
+`select_range`, which sets `anchor`/`cursor` directly and never reveals. A
+find-next that lands on a match inside a collapsed fold moves the match counter
+and puts the caret on a line with display height zero: nothing on screen moves,
+the caret is invisible, and the user is left on a screen that does not show
+where the search went.
+
+**Fix.** Call `self.reveal_cursor()` in `select_range` after setting the
+cursor (it is a jump, and a jump into a fold means "show me this"), or route it
+through `set_cursor_extending`. Add a regression test in `tests/folding.rs`:
+fold the block, `Ctrl+F` for a string that only occurs inside it, press `F3`,
+assert `!doc.is_line_hidden(match_line)`.
+
+## F2 — Undo and redo leave folds pointing at the wrong lines (MEDIUM)
+
+**File:** `src/buffer/mod.rs:1402` (`undo`), `:1431` (`redo`).
+
+Folds shift forward on an edit (`refold_after`), but undo and redo replay
+their changes directly against storage and only call `prune_folds`, which
+drops folds past the end of the buffer but cannot detect a fold that is
+*in range and wrong*. Proven by a live probe (test written, run, failed, then
+removed): fold at `(0, 2)`, Enter at column zero of the header shifts it to
+`(1, 3)`, `Ctrl+Z` restores the text but the fold stays at `(1, 3)` — line 1
+(`one();`) is now a bogus fold header hiding lines 2–3, including the `}`
+that says where the block ends. Symmetric drift happens on redo.
+
+**Fix.** `undo`/`redo` know the net line delta of the transaction they replay
+(the sign is opposite to the forward edit). Either apply `Folds::shift` per
+replayed change in reverse order, or — simpler and matching the existing
+"cannot say where its breaks landed" policy for batches — clear the folds in
+`undo`/`redo` when the transaction changed the line count. Prefer shifting
+when the transaction has exactly one change with a known `(line, col)`.
+
+## F3 — Extra carets ignore folds (LOW)
+
+**File:** `src/buffer/mod.rs:797` (`set_cursor_extending` and the multi-caret
+plumbing in `app/mod.rs`).
+
+A multi-cursor motion can park a secondary caret on a hidden line; it keeps
+editing there (typed text lands in an invisible region) until something
+settles the carets. `settle_cursor` handles only the primary cursor.
+
+**Fix.** After any motion that can move extra carets, run the same
+hidden-line check over `self.extra` and settle each one the way
+`settle_cursor` does.
+
+## F4 — Deleting the header line leaves the fold on the next line (LOW)
+
+**File:** `src/buffer/mod.rs` (`refold_after`), the `col == 0` rule.
+
+A backspace at column zero of line *n* is an edit reported at `(n, 0)` with
+negative delta, which the `col == 0` rule reads as "the header itself moved
+up" — so a fold headed at *n* shifts to *n−1* and now heads the line above
+(the one the deletion joined into). The fold survives pointing at a line that
+is not a block opener; its marker shows, and Alt+F on it unfolds something
+the user never folded.
+
+**Fix.** After the shift, verify each moved fold still opens a block
+(`block_end` on its header is `Some` and reaches the recorded end, or at
+least is deeper than the header); drop the ones that do not. Cheaper
+alternative: when the edit is a removal whose join lands on the header line,
+drop folds whose header equals the edit line.
+
+## Solid areas (checked, no issues)
+
+`Folds::shift` disjointness (all three branches); fold absorption in
+`insert`; folds cleared on reload (`reset_contents`) so the watcher cannot
+leave stale folds; per-document fold state shared by two panes (deliberate,
+consistent); wrap+folding heights (`LayoutCache::with_folds`); the "..."
+summary with count; folding is not dirty/undoable; the last-screen
+reachability edge case (tested).

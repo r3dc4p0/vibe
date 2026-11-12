@@ -442,8 +442,10 @@ impl Document {
         }
         let end = folds::block_end(self.storage.as_ref(), line, tab_width)?;
         self.folds.insert(line, end);
-        // The caret cannot stay in a region that is no longer on screen.
+        // The caret cannot stay in a region that is no longer on screen — and
+        // that goes for every secondary caret folded away with it.
         self.settle_cursor(false);
+        self.settle_extra_carets(false);
         Some(true)
     }
 
@@ -460,9 +462,20 @@ impl Document {
     /// motion was going; travelling up, and for a jump, it stops at the header,
     /// which is the line that stands for the hidden region.
     fn settle_cursor(&mut self, forward: bool) {
-        let line = self.storage.line_of_char(self.cursor);
+        let settled = self.settle_caret_pos(self.cursor, forward);
+        if settled != self.cursor {
+            self.cursor = settled;
+            if forward {
+                self.preferred_col = None;
+            }
+        }
+    }
+
+    /// Where a caret at `pos` belongs when its line is folded away.
+    fn settle_caret_pos(&self, pos: usize, forward: bool) -> usize {
+        let line = self.storage.line_of_char(pos);
         let Some((start, end)) = self.folds.covering(line) else {
-            return;
+            return pos;
         };
         let target = if forward {
             (end + 1).min(self.line_count().saturating_sub(1))
@@ -476,10 +489,34 @@ impl Document {
         } else {
             target
         };
-        self.cursor = self.storage.line_start(target);
-        if forward {
-            self.preferred_col = None;
+        self.storage.line_start(target)
+    }
+
+    /// Where a caret belongs when its line is folded away.
+    ///
+    /// Public for the multi-cursor plumbing, which places carets directly
+    /// rather than through a motion. The rules are `settle_cursor`'s:
+    /// downward continues after the fold, upward stops on the header.
+    pub fn settle_caret_position(&self, pos: usize, forward: bool) -> usize {
+        self.settle_caret_pos(pos, forward)
+    }
+
+    /// Keep every secondary caret on a line that is on the page.
+    ///
+    /// The primary caret is settled wherever folds change; the others move by
+    /// the same rules, or they end up editing text nobody can see.
+    fn settle_extra_carets(&mut self, forward: bool) {
+        if self.extra.is_empty() {
+            return;
         }
+        let mut extra = std::mem::take(&mut self.extra);
+        for caret in &mut extra {
+            caret.pos = self.settle_caret_pos(caret.pos, forward);
+            if let Some(anchor) = caret.anchor {
+                caret.anchor = Some(self.settle_caret_pos(anchor, forward));
+            }
+        }
+        self.extra = normalise_carets(self.primary_caret(), extra, self.len_chars());
     }
 
     /// Drop folds that the text no longer has room for.
@@ -509,11 +546,75 @@ impl Document {
     /// expressed against the pre-edit document and shift one another — so a
     /// batch that changes the line structure drops the folds instead of leaving
     /// them pointing at text that has moved.
-    fn refold_after(&mut self, line: usize, col: usize, delta: isize) {
+    fn refold_after(&mut self, line: usize, col: usize, delta: isize, removes_content: bool) {
+        if delta < 0 && col == 0 && removes_content {
+            // A content-bearing removal that starts at column zero has taken
+            // the header's own text with it: the fold dies rather than moving
+            // onto the line the deletion joined, which opens nothing — or
+            // opens something that was never folded.
+            self.folds.remove(line);
+        }
         if delta != 0 {
             self.folds.shift(line, col, delta, self.line_count());
             self.settle_cursor(false);
+            self.settle_extra_carets(false);
         }
+        // Even an edit that moves no line can gut a fold: deleting the
+        // header's text leaves a fold headed by whatever that line now says.
+        self.revalidate_headers(line, delta);
+    }
+
+    /// Re-check the folds whose header the edit touched.
+    ///
+    /// The model moves folds by line arithmetic and cannot know what the edit
+    /// did to the header's text. Deleting a header's content — the whole line,
+    /// or just the words on it — leaves a fold headed by a line that opens
+    /// nothing: its marker shows on a line the user never folded. Only the
+    /// lines the edit touched can be affected, so only folds headed inside
+    /// that window are re-asked, which keeps an edit O(window) not O(file).
+    fn revalidate_headers(&mut self, line: usize, delta: isize) {
+        if self.folds.is_empty() {
+            return;
+        }
+        let span = delta.unsigned_abs();
+        let last = self.line_count().saturating_sub(1);
+        let from = line.saturating_sub(span);
+        let to = (line + span).min(last);
+        if from > to {
+            return;
+        }
+        let tab_width = self.indent.map(|style| style.width).unwrap_or(4);
+        let stale: Vec<usize> = (from..=to)
+            .filter_map(|header| self.folds.hidden_at(header).map(|_| header))
+            .filter(|header| folds::block_end(self.storage.as_ref(), *header, tab_width).is_none())
+            .collect();
+        for header in stale {
+            self.folds.remove(header);
+        }
+    }
+
+    /// Refold after undo or redo replayed a transaction.
+    ///
+    /// One change is exact — it is the same edit the folds already followed,
+    /// told forwards or backwards — so it shifts them. Several changes are a
+    /// batch, whose edits are expressed against successive intermediate
+    /// documents; shifting one by one would guess, so they clear, exactly as
+    /// a forward batch does.
+    fn refold_after_replay(&mut self, steps: Vec<(usize, usize, isize, bool)>) {
+        match steps.as_slice() {
+            [] => {}
+            &[(line, col, delta, removes_content)] => {
+                if delta < 0 && col == 0 && removes_content {
+                    self.folds.remove(line);
+                }
+                self.folds.shift(line, col, delta, self.line_count());
+                self.revalidate_headers(line, delta);
+            }
+            _ => self.folds.clear(),
+        }
+        self.settle_cursor(false);
+        self.settle_extra_carets(false);
+        self.prune_folds();
     }
 
     fn prune_bookmarks(&mut self) {
@@ -787,7 +888,12 @@ impl Document {
 
     /// Open the fold that hides the cursor, if one does.
     fn reveal_cursor(&mut self) {
-        let line = self.storage.line_of_char(self.cursor);
+        self.reveal_at(self.cursor);
+    }
+
+    /// Open the fold that hides `pos`, if one does.
+    fn reveal_at(&mut self, pos: usize) {
+        let line = self.storage.line_of_char(pos);
         if let Some((start, _)) = self.folds.covering(line) {
             self.folds.remove(start);
         }
@@ -862,11 +968,15 @@ impl Document {
         self.attach_view();
 
         // Secondary carets follow the same motion, each keeping its own column.
+        // Each is settled by the same rule the primary was, or a motion into a
+        // folded region parks a caret on a line nobody can see.
         if !self.extra.is_empty() {
+            let forward = self.cursor > before;
             let mut moved = Vec::with_capacity(self.extra.len());
             for caret in &self.extra {
                 let aligned = caret.aligned_with(backward);
                 let (pos, _) = motion::apply(self.storage.as_ref(), aligned.pos, motion, ctx, None);
+                let pos = self.settle_caret_pos(pos, forward);
                 moved.push(if extend {
                     Caret {
                         pos,
@@ -921,6 +1031,13 @@ impl Document {
         self.cursor = range.end.min(self.len_chars());
         self.preferred_col = None;
         self.extra.clear();
+        // A jump can name a line that is folded away — a search match above
+        // all. Asking to go there is asking to see it, so the fold that hides
+        // it opens rather than the caret landing on a line with no rows. Both
+        // ends are revealed: a match can span the fold's header, leaving its
+        // start hidden while its end sits on a visible line.
+        self.reveal_at(self.cursor);
+        self.reveal_at(self.anchor.unwrap_or(self.cursor));
         self.attach_view();
     }
 
@@ -1102,6 +1219,7 @@ impl Document {
         let changed_col = start - self.storage.line_start(changed_line);
         let line_delta =
             text.matches('\n').count() as isize - removed.matches('\n').count() as isize;
+        let removes_content = removed.chars().any(|c| !c.is_whitespace());
 
         if !removed.is_empty() {
             self.storage.remove(start, end);
@@ -1134,7 +1252,7 @@ impl Document {
             time: std::time::Instant::now(),
         });
         self.prune_bookmarks();
-        self.refold_after(changed_line, changed_col, line_delta);
+        self.refold_after(changed_line, changed_col, line_delta, removes_content);
         true
     }
 
@@ -1304,7 +1422,7 @@ impl Document {
         let mut changes = Vec::with_capacity(sorted.len());
         // Where each edit stood before the text moved, for the folds. Recorded
         // here because after the loop there is no pre-edit document left to ask.
-        let mut fold_steps: Vec<(usize, usize, isize)> = Vec::new();
+        let mut fold_steps: Vec<(usize, usize, isize, bool)> = Vec::new();
         for edit in sorted.iter().rev() {
             let start = edit.range.start.min(self.len_chars());
             let end = edit.range.end.clamp(start, self.len_chars());
@@ -1317,7 +1435,8 @@ impl Document {
             if delta != 0 {
                 let line = self.storage.line_of_char(start);
                 let col = start - self.storage.line_start(line);
-                fold_steps.push((line, col, delta));
+                let removes_content = removed.chars().any(|c| !c.is_whitespace());
+                fold_steps.push((line, col, delta, removes_content));
             }
             if !removed.is_empty() {
                 self.storage.remove(start, end);
@@ -1377,10 +1496,17 @@ impl Document {
         self.prune_bookmarks();
         match fold_steps.as_slice() {
             [] => {}
-            &[(line, col, delta)] => self.folds.shift(line, col, delta, self.line_count()),
+            &[(line, col, delta, removes_content)] => {
+                if delta < 0 && col == 0 && removes_content {
+                    self.folds.remove(line);
+                }
+                self.folds.shift(line, col, delta, self.line_count());
+                self.revalidate_headers(line, delta);
+            }
             _ => self.folds.clear(),
         }
         self.settle_cursor(false);
+        self.settle_extra_carets(false);
         true
     }
 
@@ -1403,6 +1529,14 @@ impl Document {
         let Some(tx) = self.history.undo() else {
             return false;
         };
+        // Undo is the forward edit told backwards: what was inserted goes
+        // away, what was removed comes back, and the folds — which already
+        // followed the forward edit — are told the reversal. The anchor is
+        // the change's own start, which neither the insertion nor its undo
+        // moves, and the delta is the newline count with the sign flipped.
+        // `removes_content` is what the undo itself deletes: the text the
+        // forward edit inserted.
+        let mut fold_steps: Vec<(usize, usize, isize, bool)> = Vec::new();
         for change in tx.changes.iter() {
             let inserted_len = change.len_inserted();
             if inserted_len > 0 {
@@ -1411,6 +1545,14 @@ impl Document {
             }
             if !change.removed.is_empty() {
                 self.storage.insert(change.start, &change.removed);
+            }
+            let delta = change.removed.matches('\n').count() as isize
+                - change.inserted.matches('\n').count() as isize;
+            if delta != 0 {
+                let line = self.storage.line_of_char(change.start);
+                let col = change.start - self.storage.line_start(line);
+                let removes_content = change.inserted.chars().any(|c| !c.is_whitespace());
+                fold_steps.push((line, col, delta, removes_content));
             }
         }
         if let Some(mark) = &tx.bookmark {
@@ -1423,7 +1565,7 @@ impl Document {
         self.attach_view();
         self.revision += 1;
         self.prune_bookmarks();
-        self.prune_folds();
+        self.refold_after_replay(fold_steps);
         true
     }
 
@@ -1432,6 +1574,10 @@ impl Document {
         let Some(tx) = self.history.redo() else {
             return false;
         };
+        // Redo replays the forward edit, so the folds are told exactly what
+        // told them the first time: the same anchor, the same delta, and the
+        // same removal.
+        let mut fold_steps: Vec<(usize, usize, isize, bool)> = Vec::new();
         for change in tx.changes.iter().rev() {
             let removed_len = change.len_removed();
             if removed_len > 0 {
@@ -1440,6 +1586,14 @@ impl Document {
             }
             if !change.inserted.is_empty() {
                 self.storage.insert(change.start, &change.inserted);
+            }
+            let delta = change.inserted.matches('\n').count() as isize
+                - change.removed.matches('\n').count() as isize;
+            if delta != 0 {
+                let line = self.storage.line_of_char(change.start);
+                let col = change.start - self.storage.line_start(line);
+                let removes_content = change.removed.chars().any(|c| !c.is_whitespace());
+                fold_steps.push((line, col, delta, removes_content));
             }
         }
         if let Some(mark) = &tx.bookmark {
@@ -1452,7 +1606,7 @@ impl Document {
         self.attach_view();
         self.revision += 1;
         self.prune_bookmarks();
-        self.prune_folds();
+        self.refold_after_replay(fold_steps);
         true
     }
 
