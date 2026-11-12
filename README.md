@@ -8,11 +8,11 @@ palette. It opens instantly, handles large files without stalling, and never
 loses your work.
 
 [Website](https://r3dc4p0.github.io/vibe/) · [Architecture](docs/architecture.md) ·
-[Key bindings](docs/keybindings.md) · [Roadmap](docs/roadmap.md) · **v0.11.0**
+[Key bindings](docs/keybindings.md) · [Roadmap](docs/roadmap.md) · **v0.11.1**
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│ VIBE · src/buffer/mod.rs ●                        2 buffers  v0.11.0 │
+│ VIBE · src/buffer/mod.rs ●                        2 buffers  v0.11.1 │
 │ ▏ storage.rs ▏ mod.rs ●                                              │
 │   1 ▏ use std::ops::Range;                                           │
 │   2 ▏                                                                │
