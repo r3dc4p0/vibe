@@ -5,7 +5,7 @@
 > 0.8 review, the four from the 0.11 fold review and the housekeeping are all
 > still fixed, with their regression tests passing. The 0.12 review added one
 > more (F5, below) and fixed it in the same pass. Gate at this check: clippy 0
-> warnings, `fmt --check` clean, **718 tests pass, 0 fail**.
+> warnings, `fmt --check` clean, **716 tests pass, 0 fail**.
 
 > **VERIFICATION 2026-11-08 (post-fix):** all items below have been fixed and
 > re-verified. `cargo check` / `clippy -D warnings` / `fmt --check` clean;
@@ -386,7 +386,7 @@ and `a_click_on_the_fold_marker_folds_the_line_it_names` (both fail on the old
 code), plus `the_summary_is_clickable_with_no_gutter_to_click` for the case the
 summary exists to serve.
 
-Verified after the fix: clippy 0 warnings, `fmt --check` clean, **718 tests
+Verified after the fix: clippy 0 warnings, `fmt --check` clean, **716 tests
 pass, 0 fail**.
 
 ## Solid areas (this batch)
