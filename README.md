@@ -2,13 +2,13 @@
 
 A modern, fast terminal text editor with the keyboard shortcuts you already know.
 
-Vibe is a modal-free editor for the terminal: `Ctrl+S` saves, `Ctrl+F` finds,
-`Ctrl+Z` undoes, `Ctrl+P` jumps to a file, `Ctrl+Shift+P` opens a command
-palette. It opens instantly, handles large files without stalling, and never
-loses your work.
+Vibe is modal-free: `Ctrl+S` saves, `Ctrl+F` finds, `Ctrl+Z` undoes, `Ctrl+P`
+jumps to a file, `Ctrl+Shift+P` opens a command palette. It opens instantly,
+handles large files without stalling, and never loses your work.
 
-[Website](https://r3dc4p0.github.io/vibe/) · [Architecture](docs/architecture.md) ·
-[Key bindings](docs/keybindings.md) · [Roadmap](docs/roadmap.md) · **v0.11.1**
+[Website](https://r3dc4p0.github.io/vibe/) · [Commands](docs/commands.md) ·
+[Key bindings](docs/keybindings.md) · [Architecture](docs/architecture.md) ·
+[Roadmap](docs/roadmap.md) · **v0.11.1**
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
@@ -32,162 +32,59 @@ loses your work.
 
 ## Features
 
-**Editing** — character, word, line and document motions; shift-selection;
-cut/copy/paste; undo/redo with coalescing and save-point tracking; duplicate,
-delete and move lines; indent/dedent; comment toggling; auto-indent; bracket
-matching; trailing-whitespace trimming; optional final newline.
+**Editing** — motions, shift-selection, clipboard, undo/redo with coalescing and
+save points, duplicate/delete/move lines, comment toggling, bracket matching.
 
-**Indentation** — every file's indentation is read when it opens: whether a
-level is a tab or a run of spaces, and how many spaces. Tab, Shift+Tab, Enter
-and the pair expansion then match the file rather than a global setting, so
-opening a two-space file or a tab-indented one does not start by fighting it.
-The status bar says which style is in force; `use_spaces` and `tab_width`
-describe new buffers and files whose text says nothing. Turn it off with
-`detect_indent = false`.
+**Indentation** — each file's indentation is read when it opens, so Tab and
+Enter match the file rather than a global setting; `Ctrl+Shift+I` changes it for
+the buffer.
 
-**Changing it** — `Ctrl+Shift+I` offers the choice as a menu: tabs, 2, 4 or 8
-spaces, or "Other width…" for anything from 1 to 16. It opens on the style in
-force, so opening it and pressing Enter changes nothing. The answer applies to
-the buffer, not to the settings, which are what new buffers start from.
+**Typing** — brackets and quotes complete themselves, a closer is stepped over,
+backspace removes both halves of an empty pair, Enter between `{}` opens a
+block, and a bracket typed over a selection wraps it. Quotes pair only where a
+string can start, so `don't` is left alone.
 
-**Indent guides** — a faint rule marks the start of every indentation block and
-runs to its last line, so a function or an if/else can be followed to where it
-ends. Blank lines inside a block keep the rule; the line that closes the block
-does not, which is what makes the end visible. The rules are spaced by the
-file's own indent width, and `Ctrl+Shift+G` turns them off.
+**Multi-cursor** — stack carets with `Ctrl+Shift+Up`/`Down`, add one per
+occurrence with `Ctrl+D`, or place them with `Alt+Click`; one undo step covers
+all of them.
 
-**Typing** — brackets and quotes complete themselves: `(` writes `()` with the
-caret between them, a closer already under the caret is stepped over instead of
-doubled, backspace inside an empty pair removes both halves, and Enter between
-`{}` opens the block onto three lines. Quotes only pair where a string can
-start, so `don't` and Rust's `&'a` are left alone, and nothing pairs between
-the two halves of a word — `hel|lo` stays `hel(lo`. Selecting text and typing a
-bracket surrounds it rather than replacing it, and leaves it selected so a
-second bracket wraps it again. One setting, `auto_pairs`, or `Ctrl+Shift+A` to
-toggle it for the session.
+**Search** — incremental, with case, whole-word and regex toggles, and
+replace-all as one undo step. The first pass answers each keystroke and the rest
+of the file is scanned in the background, so every match is reachable in a file
+too large to scan per keystroke.
 
-**Multi-cursor** — stack carets with `Ctrl+Shift+Up`/`Ctrl+Shift+Down`, and keep
-holding to keep stacking; `Ctrl+Alt+Up`/`Ctrl+Alt+Down` does the same for
-fingers that learned it first. Add one per occurrence of the selection with
-`Ctrl+D`, or place them with `Alt+Click`. Typing, deleting, indenting and
-newlines apply to every caret as a single undo step, and `Esc` collapses back
-to one. Occurrences are matched literally, so a selection of `he` also finds
-the `he` inside `hello`.
+**Files** — tabs; atomic saves that keep permissions and symlinks; UTF-8/UTF-16
+with BOM; LF/CRLF/CR written back unchanged; binary files refused. A
+two-gigabyte file loads on a worker thread behind a progress panel.
 
-**Buttons** — the shortcut bar along the bottom is clickable: point at a hint
-and it lifts onto a button background, click it and the command runs. It is a
-second way to reach save, find, open, the command palette and help, for a
-trackpad or for anyone who has not learned the keys yet.
+**Nothing gets lost** — unsaved buffers are snapshotted a second after they
+change, so a crash does not take them; the next start brings them back, dirty,
+at the cursor they had.
 
-**Mouse** — click to place the cursor, drag to select (autoscrolling above and
-below the text), double-click for a word and triple-click for a line, and click
-a tab to switch buffers. The wheel scrolls the view rather than the cursor, so
-it can look anywhere in the buffer; when the cursor leaves the screen the
-status bar keeps reporting its line, in amber. `Alt+Click` adds a cursor.
-Disable the lot with `mouse = false`.
+**Live changes** — every open file is watched: a clean buffer follows another
+program's write and keeps its caret and scroll, while a dirty one is never
+overwritten but takes a `⚠ changed on disk` and a save that asks first.
 
-**Panes** — `Ctrl+\` splits the editing area and shows the same file twice, at
-two places in it, scrolling independently. `Ctrl+Alt+Left`/`Right` moves between
-panes and a click focuses the one under the pointer; `Ctrl+Alt+W` closes it. Load
-another buffer into a pane and you have two files side by side. Edits are shared
-because there is only ever one document.
+**Clipboard** — the OS pasteboard where there is one, otherwise OSC 52, the only
+route that reaches your machine over SSH or tmux; the editor keeps its own copy,
+and the message says which happened.
 
-**Comparing files** — `Alt+D` picks a file and opens it beside the one you are
-in, aligned line by line: a line that exists on only one side is drawn against a
-shaded gap on the other, so the columns never drift apart. Removed lines are
-tinted on the left, added ones on the right, and rewritten ones on both. One
-scroll offset drives both columns, `]` and `[` step through the changes, and
-`Esc` returns to the text. The alignment is computed from 128-bit line
-fingerprints, so a 100 000-line file compares in about 70 ms and nothing has a
-worst case that hangs.
+**Panes and comparison** — `Ctrl+\` splits the area over one document, scrolling
+independently; `Alt+D` compares two files line by line, with `]`/`[` stepping
+through the changes.
 
-**Look** — the chrome is drawn the way the design on the website is drawn: a
-border is a fraction of a cell rather than a whole one, so panels are framed by
-hairlines on the edge of their rows, tabs are split by a rule, and the
-line-number gutter is ruled off from the text. The percentage in the status bar
-is a badge. If you prefer the older block-glyph chrome, `Ctrl+Shift+U`,
-`--ui cell` or `[ui] style = "cell"` brings it back.
+**Bookmarks and folds** — double-click a gutter row to name a line, and
+`Ctrl+Shift+B` lists them across buffers; `Alt+F` collapses the indentation block
+under the cursor, or exactly the lines you selected, keeping its header and
+closing brace; `Ctrl+Shift+F` collapses every block at once and `Ctrl+Shift+E`
+opens them again. A folded block is one row: arrows step over it, its header
+carries a `▸` and a `⋯ n` count, and clicking either opens it. Folds are view
+state, never text — not saved, not an undo step, never marking the file
+modified — but they follow the text as it is edited.
 
-**Files** — multiple buffers with tabs; atomic saves (temp file + `fsync` +
-`rename`) that preserve permissions and symlinks; UTF-8/UTF-16 with BOM
-detection; LF/CRLF/CR line endings detected per file and written back unchanged;
-binary files refused rather than corrupted; recent files; session restore.
-Unsaved buffers are copied to the data directory
-a second after they change, so a crash, a `kill` or a closed terminal does not
-take them with it — the next start brings them back, dirty, at the cursor they
-had. A clean exit discards the copy, because by then you have been asked.
-
-Big files open on a worker thread behind a progress panel that counts the
-bytes actually read, so the window keeps painting while a two-gigabyte file
-loads.
-
-**Live changes** — every open file is watched, so a file written by another
-program does not stay wrong on screen until you save over it. A buffer with no
-unsaved changes follows the file — a `git checkout`, a formatter, another
-editor — and reloads itself within a frame or two, keeping the caret and the
-scroll where they were. A buffer with unsaved changes is never overwritten: it
-takes a `⚠ changed on disk` in the status bar, and the save that would clobber
-it asks first. The watch is on the directory rather than the file, because the
-ordinary way to write a file is to write a temporary one and rename it over the
-original — a watch on the file itself would fall silent exactly when it matters.
-`files.watch_external_changes = false` turns it off, and a filesystem that
-cannot be watched falls back to the check made at save time.
-
-**Clipboard** — a copy leaves the editor: the OS pasteboard when there is one,
-and otherwise the terminal's own clipboard through OSC 52, which is the only
-route that reaches your machine over SSH, inside tmux or in a container. The
-editor keeps its own copy either way, so an in-editor paste still works when
-nothing outside will take the text — and the message says which happened rather
-than claiming a copy it did not make. `clipboard = "auto"`, `"system"`,
-`"terminal"` or `"internal"` in `[editor]` chooses the route.
-
-**Search** — incremental search with case, whole-word and regex toggles;
-find & replace including replace-all as a single undo step; match counter;
-`F3`/`Shift+F3` to repeat. `Ctrl+F` searches what you selected, verbatim — a
-partial selection stays partial. Typing is answered from a fast first pass, and
-the rest of the file is scanned in the background once you press Enter or `F3`,
-so every match is reachable — including in files too large to scan per
-keystroke.
-
-**Bookmarks** — double-click a line-number gutter row and the line takes a `└` in
-the margin. `Ctrl+Shift+B` opens a panel listing every bookmark across open
-buffers, grouped by file: the arrow keys walk it, `Enter` jumps to the line,
-`Ctrl+Alt+B` moves focus between panel and editor without closing either, and
-typing edits the caption. Every bookmark is named — `bookmark_1`, `bookmark_2`,
-its place in the file — and a name is drawn on a row above its line, joined to
-the gutter by a rule so the mark reads as a bracket around the code it names.
-That row exists only while the panel does, so captions never cost you a screen
-row per bookmark while you are working; with the panel closed the mark folds to
-a plain `▌` and the bookmark stays findable. A caption is a rendering, never
-text — a row of screen, never a byte of the file. Placing, removing and renaming
-are undo steps in the same stack as the text, so `Ctrl+Z` takes back the name you
-typed and then the bookmark itself; none of it marks the file modified.
-Emptying a name and pressing backspace asks `delete?` rather than removing the
-bookmark on the spot.
-
-**Folding** — `Alt+F` collapses the block under the cursor and `Alt+F` opens it
-again. A block is found by indentation rather than by a parser, so folding works
-in every language the editor can open and needs no grammar to be right; the
-closing brace stays visible, because it is the line that says where the block
-ends. A collapsed block keeps its header, marked `▸` in the gutter and closed
-with `⋯ n` where the text stops — `n` being the lines that went away — and a
-click on that gutter column does the same thing as the key. The caret cannot go
-where nothing is drawn: down steps over the fold, up lands on the header, and a
-jump to a hidden line opens it. Folding is view state, never text, so it is not
-saved, does not mark the buffer modified and is not an undo step. `Ctrl+Shift+E`
-opens everything.
-
-**Navigation** — go to line/column, fuzzy file finder (`Ctrl+P`), command
-palette (`Ctrl+Shift+P`) grouped into sections by category — `↑`/`↓` step over
-the separators, `→`/`←` jump between sections, and typing flattens the list so
-the ranking is not broken up — and a help screen generated from the live keymap.
-
-**Interface** — line-number gutter (absolute or relative), syntax highlighting
-for 17 languages, dark and light themes, visible whitespace, indent guides,
-word wrap (`Alt+W`), contextual shortcut hints, a notification area, and
-graceful degradation down to a one-row terminal. Wrapping is not a cosmetic
-layer: the wheel, the arrow keys, page keys and the mouse all move by visual
-rows, so a single long line can fill the window and be edited like any other.
+**Navigation and look** — go to line, fuzzy finder, a palette grouped by
+category, help built from the live keymap; hairline chrome, 17 languages, dark
+and light themes, indent guides, and word wrap that moves by visual rows.
 
 ## Install
 
@@ -222,10 +119,12 @@ vibe --key-report       # explain which shortcuts this terminal takes or merges
 | `-h`, `--help` | Usage |
 | `-V`, `--version` | Version |
 
-## Shortcuts
+## Commands
 
-See [docs/keybindings.md](docs/keybindings.md) for the complete table, including
-the terminal-specific caveats.
+Every binding is a command with a stable id, remappable in `config.toml` and
+reachable from the palette even when unbound. **[docs/commands.md](docs/commands.md)
+lists all 69** with their ids and default keys; `vibe --list-keys` prints the
+same for your own configuration.
 
 The essentials:
 
@@ -233,41 +132,23 @@ The essentials:
 | --- | --- |
 | `Ctrl+S` / `Ctrl+Shift+S` | Save / Save As |
 | `Ctrl+O` / `Ctrl+N` / `Ctrl+W` | Open / New / Close buffer |
-| `Ctrl+P` | Fuzzy file finder |
-| `Ctrl+Shift+P` | Command palette |
+| `Ctrl+P` / `Ctrl+Shift+P` | Fuzzy file finder / Command palette |
 | `Ctrl+F` / `Ctrl+H` | Find / Replace |
 | `F3` / `Shift+F3` | Find next / previous |
 | `Ctrl+Z` / `Ctrl+Y` | Undo / Redo |
 | `Ctrl+X` / `Ctrl+C` / `Ctrl+V` | Cut / Copy / Paste |
-| `Ctrl+A` | Select all |
 | `Ctrl+D` | Add a cursor at the next occurrence |
-| `Ctrl+Shift+Up` / `Ctrl+Shift+Down` | Add a cursor above / below (hold to stack) |
-| `Ctrl+Alt+Up` / `Ctrl+Alt+Down` | The same, if your terminal reports Alt with arrows |
-| `Alt+Click` | Add or remove a cursor |
-| `Ctrl+G` | Go to line |
-| `Ctrl+Tab` | Next buffer |
-| `Alt+W` | Toggle word wrap |
-| `Alt+D` | Compare with another file |
-| `]` / `[` | Next / previous change (in the diff view) |
-| `Ctrl+Shift+B` / `Ctrl+Alt+B` | Bookmark panel / move focus to it |
-| `Alt+F` / `Ctrl+Shift+E` | Fold the block under the cursor / open every fold |
-| `F1` | Help |
-| `F2` | Which keys reach Vibe — the report below, with a live echo |
+| `Ctrl+G` / `Ctrl+Tab` | Go to line / Next buffer |
+| `Alt+D` / `Alt+W` / `Alt+F` | Compare file / Word wrap / Fold block |
+| `Ctrl+Shift+B` | Bookmark panel |
+| `F1` / `F2` | Help / Which keys reach Vibe |
 
-> **Terminals are not all the same.** `Ctrl+C` is delivered as `SIGINT` by many
-> terminals before the application sees it, and `Ctrl+Shift+X` / `Ctrl+Tab`
-> cannot be distinguished without the Kitty keyboard protocol. Vibe enables the
-> protocol when the terminal supports it and falls back to unambiguous
-> alternatives otherwise; the status bar shows `~keys` when the fallback is
-> active.
->
-> When a shortcut does nothing, `F2` says why. It names the host it detected
-> (tmux, screen, Zellij, the VS Code terminal), lists the bindings that host
-> takes for itself, lists the ones the wire merges — `Ctrl+Shift+S` arriving as
-> `Ctrl+S` and running Save — and echoes each key as it arrives, so a shortcut
-> the terminal swallowed is visibly a key that never came. `vibe --key-report`
-> prints the same report without starting the editor. See
-> [docs/keybindings.md](docs/keybindings.md).
+Terminals are not all the same: many deliver `Ctrl+C` as `SIGINT` before the
+application sees it, and `Ctrl+Shift+X` / `Ctrl+Tab` need the Kitty keyboard
+protocol. Vibe enables the protocol where it can and falls back to unambiguous
+alternatives otherwise. When a shortcut does nothing, `F2` says why — it names
+the host, the chords that host takes, the ones the wire merges, and echoes each
+key as it arrives. See [docs/keybindings.md](docs/keybindings.md).
 
 ## Configuration
 
@@ -315,8 +196,6 @@ Measured on the development machine (Apple silicon, macOS 27, release build,
 | Full frame, 120×24 | < 16 ms | **70 µs** |
 
 ## Architecture
-
-Vibe separates state, mutation and rendering:
 
 ```
 terminal event → input::translate → Action → App::execute → Document

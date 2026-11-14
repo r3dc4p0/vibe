@@ -33,10 +33,11 @@ Ordered by what a user notices first, not by what is easiest.
   instead of being overwritten
 - Clipboard routing: the OS pasteboard where there is one, OSC 52 where there is
   not (SSH, tmux, containers), and an in-editor copy either way
-- Code folding: an indentation-based block collapses to one row behind a `▸` in
-  the gutter, with a `⋯ n` count where the text stopped. Folds are view state —
-  never saved, never an undo step, never dirtying the buffer — but they follow
-  the text as it is edited
+- Code folding: an indentation-based block — or exactly the lines you selected —
+  collapses to one row behind a `▸` in the gutter, with a `⋯ n` count where the
+  text stopped; `Ctrl+Shift+F` folds every block at once and `Ctrl+Shift+E` opens
+  them again. Folds are view state — never saved, never an undo step, never
+  dirtying the buffer — but they follow the text as it is edited
 - Unit, integration, UI and property tests; Criterion benchmarks
 
 ## Next
@@ -63,6 +64,10 @@ resumable matcher would keep the same responsiveness as literal search.
 - **Git integration**: gutter markers and hunk staging, out of process.
 - **Terminal image protocols**: not planned; the editor is text-first.
 - **Splits in a tabbed layout, minimap**: nice, not scheduled.
+- **Fold to level**: `Alt+1`…`Alt+9` to collapse everything deeper than a level,
+  the way the outline of a file is read. Deliberately left out of the first pass:
+  it needs nine bindings, and `Alt+1`…`Alt+9` are the only digits a terminal is
+  sure to deliver with a modifier.
 
 ## Explicitly not planned
 

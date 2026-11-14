@@ -21,6 +21,14 @@ fn fold(app: &mut vibe::app::App) {
     alt(app, KeyCode::Char('f'));
 }
 
+fn fold_all(app: &mut vibe::app::App) {
+    press(
+        app,
+        KeyCode::Char('f'),
+        KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+    );
+}
+
 fn click(app: &mut vibe::app::App, column: u16, row: u16) {
     app.handle_event(Event::Mouse(MouseEvent {
         kind: MouseEventKind::Down(MouseButton::Left),
@@ -115,6 +123,9 @@ fn a_click_on_the_fold_column_toggles_the_block() {
 
     click(&mut app, area.x + column, area.y);
     assert_eq!(app.active_doc().unwrap().folds().hidden_at(0), Some(2));
+    // Two clicks inside the double-click interval are one gesture, so opening
+    // the fold takes a press of its own — hence the wait.
+    std::thread::sleep(std::time::Duration::from_millis(450));
     click(&mut app, area.x + column, area.y);
     assert!(app.active_doc().unwrap().folds().is_empty());
 }
@@ -141,6 +152,130 @@ fn unfold_all_reopens_every_block() {
     );
     assert!(app.active_doc().unwrap().folds().is_empty());
     assert!(screen(&mut app, 60, 12).join("\n").contains("deep"));
+}
+
+#[test]
+fn fold_all_collapses_every_block() {
+    let scratch = Scratch::new();
+    let mut app = fold_editor(&scratch);
+    type_str(
+        &mut app,
+        "fn a() {\n    one();\n}\nfn b() {\n    two();\n}\nafter",
+    );
+    fold_all(&mut app);
+
+    let doc = app.active_doc().unwrap();
+    assert_eq!(
+        doc.folds().iter().collect::<Vec<_>>(),
+        vec![(0, 1), (3, 4)],
+        "one fold per block, bodies only"
+    );
+    let all = screen(&mut app, 60, 14).join("\n");
+    assert!(
+        all.contains("fn a() {") && all.contains("fn b() {"),
+        "{all}"
+    );
+    assert!(!all.contains("one();") && !all.contains("two();"), "{all}");
+    assert!(
+        all.contains("after"),
+        "nothing past the blocks moved:\n{all}"
+    );
+}
+
+#[test]
+fn fold_all_keeps_a_neighbouring_header_on_the_page() {
+    // No closing braces here, so the two folds touch: `(0, 1)` ends on the line
+    // before the second header starts. Merging them — which is what a fold
+    // placed by hand does with a range it touches — would hide `beta`, the one
+    // line the second fold is supposed to leave behind.
+    let scratch = Scratch::new();
+    let mut app = fold_editor(&scratch);
+    type_str(&mut app, "alpha\n    a1\nbeta\n    b1\ngamma");
+    fold_all(&mut app);
+
+    let doc = app.active_doc().unwrap();
+    assert_eq!(
+        doc.folds().iter().collect::<Vec<_>>(),
+        vec![(0, 1), (2, 3)],
+        "two folds, not one"
+    );
+    let all = screen(&mut app, 60, 12).join("\n");
+    for header in ["alpha", "beta", "gamma"] {
+        assert!(all.contains(header), "`{header}` is still there:\n{all}");
+    }
+    assert!(!all.contains("a1") && !all.contains("b1"), "{all}");
+}
+
+#[test]
+fn a_selection_folds_exactly_the_lines_it_covers() {
+    // The lines are all at the same indentation, so no block describes them:
+    // the selection is the only thing that says what to fold.
+    let scratch = Scratch::new();
+    let mut app = fold_editor(&scratch);
+    type_str(&mut app, "one\ntwo\nthree\nfour\nfive");
+    app.active_doc_mut().unwrap().goto_line(1);
+    shift(&mut app, KeyCode::Down);
+    shift(&mut app, KeyCode::Down);
+
+    fold(&mut app);
+    let doc = app.active_doc().unwrap();
+    assert_eq!(
+        doc.folds().iter().collect::<Vec<_>>(),
+        vec![(1, 2)],
+        "the selection stops at the start of the line it ends on"
+    );
+    let all = screen(&mut app, 60, 12).join("\n");
+    assert!(all.contains("one") && all.contains("four"), "{all}");
+    assert!(
+        all.contains("two"),
+        "the first selected line is the header:\n{all}"
+    );
+    assert!(!all.contains("three"), "the rest is folded away:\n{all}");
+}
+
+#[test]
+fn a_click_on_the_summary_opens_the_fold() {
+    let scratch = Scratch::new();
+    let mut app = fold_editor(&scratch);
+    type_str(&mut app, BLOCK);
+    app.active_doc_mut().unwrap().goto_line(0);
+    fold(&mut app);
+
+    let rows = screen(&mut app, 80, 16);
+    let (row, column) = rows
+        .iter()
+        .enumerate()
+        .find_map(|(y, line)| {
+            // The gutter is drawn in multi-byte glyphs, so the byte offset of
+            // the ellipsis is not the column it was painted in.
+            let at = line.find('⋯')?;
+            Some((y, line[..at].chars().count()))
+        })
+        .expect("the folded line says how much it hid");
+    click(&mut app, column as u16, row as u16);
+    assert!(
+        app.active_doc().unwrap().folds().is_empty(),
+        "clicking the count opens the block"
+    );
+}
+
+#[test]
+fn a_double_click_on_the_fold_column_folds_once() {
+    let scratch = Scratch::new();
+    let mut app = fold_editor(&scratch);
+    type_str(&mut app, BLOCK);
+    screen(&mut app, 80, 16);
+
+    let area = app.editor_area();
+    let column = vibe::ui::editor::fold_column(app.active_doc().unwrap().line_count(), &app.config)
+        .expect("a gutter to draw the marker in");
+    click(&mut app, area.x + column, area.y);
+    click(&mut app, area.x + column, area.y);
+    assert_eq!(
+        app.active_doc().unwrap().folds().hidden_at(0),
+        Some(2),
+        "the second half of a double-click is not a second toggle"
+    );
 }
 
 #[test]

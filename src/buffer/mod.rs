@@ -430,23 +430,90 @@ impl Document {
         self.folds.is_hidden(line)
     }
 
-    /// Fold the block `line` opens, or unfold it if it is already folded.
+    /// Fold the block `line` opens — or the selection, when it spans lines —
+    /// and unfold it if it is already folded.
     ///
     /// `Some(true)` folded, `Some(false)` unfolded, `None` when there is no
     /// block to fold there. Not an undoable step and not a modification:
     /// folding moves no text, and `Ctrl+Z` should take back the last thing the
     /// user typed, not the last thing they looked at.
     pub fn toggle_fold(&mut self, line: usize, tab_width: usize) -> Option<bool> {
-        if self.folds.remove(line) {
+        let (start, end) = self.fold_span(line, tab_width)?;
+        if self.folds.remove(start) {
             return Some(false);
         }
-        let end = folds::block_end(self.storage.as_ref(), line, tab_width)?;
-        self.folds.insert(line, end);
+        self.folds.insert(start, end);
         // The caret cannot stay in a region that is no longer on screen — and
         // that goes for every secondary caret folded away with it.
         self.settle_cursor(false);
         self.settle_extra_carets(false);
         Some(true)
+    }
+
+    /// The lines a fold on `line` would cover: the selection when it spans more
+    /// than one line, otherwise the block the line opens.
+    ///
+    /// The selection wins because it is the only way to fold a range that
+    /// indentation cannot describe — a Lisp form, a list in YAML, a stretch of
+    /// prose — and because a user who has just selected four lines and pressed
+    /// the fold key means those four lines, not the block around them.
+    pub fn fold_span(&self, line: usize, tab_width: usize) -> Option<(usize, usize)> {
+        if let Some((first, last)) = self.selected_lines() {
+            return Some((first, last));
+        }
+        let end = folds::block_end(self.storage.as_ref(), line, tab_width)?;
+        Some((line, end))
+    }
+
+    /// First and last line of the selection, when it covers more than one.
+    ///
+    /// A selection that ends at the very start of a line does not include that
+    /// line: dragging to the beginning of the next line selects up to the break
+    /// before it, which is the reading every editor uses.
+    fn selected_lines(&self) -> Option<(usize, usize)> {
+        let range = self.selection()?;
+        let first = self.storage.line_of_char(range.start);
+        let mut last = self.storage.line_of_char(range.end);
+        if last > first && range.end == self.storage.line_start(last) {
+            last -= 1;
+        }
+        (last > first).then_some((first, last))
+    }
+
+    /// Collapse every block in the buffer, leaving one row per outermost block.
+    ///
+    /// Outermost only, because a fold hides what it contains: a block inside a
+    /// collapsed one is already off the page, and asking for its end would walk
+    /// the same lines again. That also keeps the scan linear — each line is read
+    /// once to find a block's end and once to skip past it — where asking every
+    /// line for its own block would be quadratic on a nested file.
+    ///
+    /// The result replaces whatever was folded before rather than joining it: a
+    /// selection folded by hand covers lines no block describes, and keeping it
+    /// would leave the file in a shape neither the user nor this command asked
+    /// for.
+    pub fn fold_all(&mut self, tab_width: usize) -> usize {
+        let mut ranges = Vec::new();
+        let line_count = self.storage.len_lines();
+        let mut line = 0;
+        while line < line_count {
+            let end = folds::block_end(self.storage.as_ref(), line, tab_width);
+            match end {
+                Some(end) => {
+                    ranges.push((line, end));
+                    // The line after a block's last one is its closing brace,
+                    // which opens nothing; skipping straight past the body is
+                    // what makes this a single pass.
+                    line = end + 1;
+                }
+                None => line += 1,
+            }
+        }
+        let folded = ranges.len();
+        self.folds.replace_all(ranges);
+        self.settle_cursor(false);
+        self.settle_extra_carets(false);
+        folded
     }
 
     /// Expand every fold. Returns how many there were.

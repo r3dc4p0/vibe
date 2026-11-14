@@ -455,6 +455,33 @@ pub struct UiState {
     pub hint_hits: Vec<HintHit>,
     /// The hint under the pointer, so the bar reads as something pressable.
     pub hovered_hint: Option<usize>,
+    /// Where each `⋯ n` fold summary landed in the last frame.
+    ///
+    /// The summary is drawn at the end of the line it closes, which is a column
+    /// only the renderer knows, so the rectangle is recorded here for the click
+    /// handler — the same arrangement the bookmark panel and the hint bar use.
+    /// A click on it unfolds, which gives the mouse a target that does not
+    /// depend on the gutter being drawn.
+    pub fold_hits: Vec<FoldHit>,
+}
+
+/// A `⋯ n` summary drawn in the last frame.
+#[derive(Debug, Clone, Copy)]
+pub struct FoldHit {
+    pub row: u16,
+    /// First column, inclusive.
+    pub start: u16,
+    /// Last column, exclusive.
+    pub end: u16,
+    pub document_id: usize,
+    /// The header line of the fold it closes.
+    pub line: usize,
+}
+
+impl FoldHit {
+    pub fn contains(&self, column: u16, row: u16) -> bool {
+        row == self.row && column >= self.start && column < self.end
+    }
 }
 
 impl Default for UiState {
@@ -466,6 +493,7 @@ impl Default for UiState {
             status: None,
             hint_hits: Vec::new(),
             hovered_hint: None,
+            fold_hits: Vec::new(),
         }
     }
 }
@@ -677,6 +705,9 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     app.set_tabs_area(l.tabs.unwrap_or_default());
     app.ui.bookmarks.area = l.bookmarks.unwrap_or_default();
     app.ui.bookmarks.hits.clear();
+    // Fold summaries are recorded as they are drawn, so a stale rectangle would
+    // make a column of plain code unfold something.
+    app.ui.fold_hits.clear();
 
     if let Some(r) = l.topbar {
         chrome::draw_topbar(frame.buffer_mut(), r, app);
@@ -941,6 +972,7 @@ fn draw_pane(frame: &mut Frame, area: Rect, app: &mut App, pane: usize, install:
         focused: pane == app.active_pane && app.ui.overlay.is_none() && !app.ui.bookmarks.focused,
         bookmark_annotations,
         follows_cursor: pane == app.active_pane,
+        fold_hits: &mut app.ui.fold_hits,
     };
     renderer.render(frame, area);
 

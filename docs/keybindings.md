@@ -4,6 +4,11 @@ Every binding is a *command*. Commands have stable ids (`file.save`,
 `search.findNext`) and can be rebound in `config.toml` or run from the command
 palette (`Ctrl+Shift+P`).
 
+[Commands](commands.md) lists every command in the editor with its id and
+default keys, including the ones that ship unbound. This page is the other half:
+what the keys do, in context, and which of them your terminal will actually
+deliver.
+
 Run `vibe --list-keys` to print the table for your current configuration.
 
 ## Files
@@ -122,6 +127,7 @@ section.
 | Click a tab | Switch to that buffer |
 | Click a hint in the bottom bar | Run it — the bar is a row of buttons |
 | Click the gutter's fold column | Collapse or expand the block on that line (see below) |
+| Click a fold's `⋯ n` count | Open the block it closes |
 
 ## Bookmarks
 
@@ -191,11 +197,26 @@ A closing brace at the header's own indentation is deliberately left visible:
 it is the line that says where the block ends, so hiding it would defeat the
 point of collapsing the body.
 
+With a selection, `Alt+F` folds exactly the lines you selected instead — the
+only way to fold a range indentation cannot describe, such as a Lisp form, a
+list in YAML or a stretch of prose. A selection that ends at the very start of a
+line does not include that line, so dragging to the beginning of the next line
+folds up to the break before it.
+
+`Ctrl+Shift+F` collapses every block in the buffer at once, leaving one header
+per top-level block, and `Ctrl+Shift+E` opens them all again. Folding everything
+replaces whatever was folded before rather than adding to it: a selection folded
+by hand covers lines no block describes, and keeping it would leave the file in
+a shape neither you nor the command asked for.
+
 A collapsed block leaves its header line behind, marked with `▸` in the gutter
 and closed with `⋯ n` where the text stops, `n` being the number of lines that
 went away. A click on that gutter column toggles the block, and never reaches
 the bookmark gesture underneath it — a click that folds the file would otherwise
-be the first half of a double-click.
+be the first half of a double-click. Two clicks in quick succession are one
+gesture, not two toggles. The `⋯ n` is a button too: clicking the count opens
+the block, which is the only fold affordance that survives with the gutter
+turned off (`line_numbers = false`), where there is no column to click.
 
 The caret cannot go where nothing is drawn. Moving down steps over a collapsed
 block and lands on the line after it; moving up lands on the header. A jump that
@@ -207,7 +228,7 @@ Folding is view state, not text: it is never saved, never marks the buffer
 modified, and is not an undo step, so `Ctrl+Z` still takes back the last thing
 you typed. It does follow the text, though — a line inserted above a fold
 carries it down, one inserted inside it grows it — and a fold the edit swallowed
-is dropped. `Ctrl+Shift+E` opens every fold in the buffer.
+is dropped.
 
 Folds are kept per buffer, not per pane, so two panes on the same file fold it
 the same way.
@@ -264,7 +285,8 @@ brings them back.
 | `Ctrl+Shift+G` | `view.toggleIndentGuides` | Rule between indentation blocks on / off |
 | `Alt+Z` | `view.toggleWhitespace` | Show tabs, spaces and control characters |
 | `Alt+W` | `view.toggleWordWrap` | Wrap long lines at the window width |
-| `Alt+F` | `view.toggleFold` | Collapse or expand the block under the cursor |
+| `Alt+F` | `view.toggleFold` | Collapse or expand the block under the cursor, or the selection |
+| `Ctrl+Shift+F` | `view.foldAll` | Collapse every block in the buffer |
 | `Ctrl+Shift+E` | `view.unfoldAll` | Expand every fold in the buffer |
 | `Ctrl+Shift+B` | `view.toggleBookmarkPanel` | Open or close the bookmark panel |
 | `Ctrl+Alt+B` | `view.focusBookmarkPanel` | Focus the bookmark panel or return to the editor |

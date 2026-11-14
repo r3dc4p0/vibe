@@ -96,6 +96,24 @@ impl Folds {
         self.ranges.insert(lo, hi);
     }
 
+    /// Replace the whole set, keeping the ranges exactly as given.
+    ///
+    /// [`insert`](Self::insert) merges ranges that merely *touch*, which is what
+    /// a user folding two adjacent selections wants — the two folds between
+    /// them cover one block. It is wrong for a caller placing a set at once:
+    /// `(0, 3)` and `(4, 7)` touch because line 3 is the first block's closing
+    /// brace, and merging them would hide the second block's header, which is
+    /// the one line that should survive. The caller guarantees disjoint ranges;
+    /// an overlapping one replaces the entry already keyed there.
+    pub fn replace_all(&mut self, ranges: impl IntoIterator<Item = (usize, usize)>) {
+        self.ranges.clear();
+        for (start, end) in ranges {
+            if end > start {
+                self.ranges.insert(start, end);
+            }
+        }
+    }
+
     /// Expand the fold whose header is `start`. True when there was one.
     pub fn remove(&mut self, start: usize) -> bool {
         self.ranges.remove(&start).is_some()
@@ -279,6 +297,32 @@ mod tests {
             f.iter().collect::<Vec<_>>(),
             vec![(1, 3), (8, 10), (20, 22)]
         );
+    }
+
+    #[test]
+    fn replacing_a_set_keeps_adjacent_blocks_apart() {
+        // The line between two blocks is the first one's closing brace, so the
+        // ranges touch. Merging them would hide the second header.
+        let mut f = Folds::new();
+        f.replace_all([(0, 3), (4, 7)]);
+        assert_eq!(f.iter().collect::<Vec<_>>(), vec![(0, 3), (4, 7)]);
+        assert!(f.is_hidden(3));
+        assert!(!f.is_hidden(4), "the second header stays on the page");
+    }
+
+    #[test]
+    fn replacing_a_set_drops_what_was_there() {
+        let mut f = Folds::new();
+        f.insert(20, 25);
+        f.replace_all([(0, 3)]);
+        assert_eq!(f.iter().collect::<Vec<_>>(), vec![(0, 3)]);
+    }
+
+    #[test]
+    fn replacing_a_set_ignores_empty_ranges() {
+        let mut f = Folds::new();
+        f.replace_all([(4, 4), (5, 9), (8, 2)]);
+        assert_eq!(f.iter().collect::<Vec<_>>(), vec![(5, 9)]);
     }
 
     #[test]

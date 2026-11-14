@@ -109,6 +109,7 @@ pub enum Command {
     ToggleCursorLine,
     ToggleWordWrap,
     ToggleFold,
+    FoldAll,
     UnfoldAll,
     ToggleBookmarkPanel,
     FocusBookmarkPanel,
@@ -185,6 +186,7 @@ impl Command {
         Command::ToggleCursorLine,
         Command::ToggleWordWrap,
         Command::ToggleFold,
+        Command::FoldAll,
         Command::UnfoldAll,
         Command::ToggleBookmarkPanel,
         Command::FocusBookmarkPanel,
@@ -259,6 +261,7 @@ impl Command {
             Command::ToggleCursorLine => "view.toggleCursorLine",
             Command::ToggleWordWrap => "view.toggleWordWrap",
             Command::ToggleFold => "view.toggleFold",
+            Command::FoldAll => "view.foldAll",
             Command::UnfoldAll => "view.unfoldAll",
             Command::ToggleBookmarkPanel => "view.toggleBookmarkPanel",
             Command::FocusBookmarkPanel => "view.focusBookmarkPanel",
@@ -334,6 +337,7 @@ impl Command {
             Command::ToggleCursorLine => "Toggle Cursor Line Highlight",
             Command::ToggleWordWrap => "Toggle Word Wrap",
             Command::ToggleFold => "Toggle Fold",
+            Command::FoldAll => "Fold All",
             Command::UnfoldAll => "Unfold All",
             Command::ToggleBookmarkPanel => "Toggle Bookmark Panel",
             Command::FocusBookmarkPanel => "Focus Bookmark Panel",
@@ -408,6 +412,7 @@ impl Command {
             | Command::ToggleCursorLine
             | Command::ToggleWordWrap
             | Command::ToggleFold
+            | Command::FoldAll
             | Command::UnfoldAll
             | Command::ToggleBookmarkPanel
             | Command::FocusBookmarkPanel
@@ -485,6 +490,10 @@ impl Command {
             Command::ToggleIndentGuides => &["ctrl+shift+g"],
             Command::ToggleWordWrap => &["alt+w"],
             Command::ToggleFold => &["alt+f"],
+            // The pair to `ctrl+shift+e`, and one key to its left: the two
+            // commands that fold and unfold the whole file belong together on
+            // the keyboard, and neither has a `shift`-less neighbour to lose.
+            Command::FoldAll => &["ctrl+shift+f"],
             // `ctrl+shift+e` rather than `alt+shift+f`: terminals that merge
             // shift into alt would make the escape hatch unreachable exactly
             // when a fold has gone wrong and it is needed.
@@ -557,7 +566,7 @@ mod tests {
     fn all_variants_are_listed() {
         // Guards against forgetting to add a new variant to `ALL`, which would
         // make it invisible to the palette and the keymap builder.
-        assert_eq!(Command::ALL.len(), 69);
+        assert_eq!(Command::ALL.len(), 70);
     }
 
     #[test]

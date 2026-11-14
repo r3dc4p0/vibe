@@ -899,7 +899,7 @@
 
         <article class="card">
           <h3>Fold the code you are not reading</h3>
-          <p><span class="inline-code">Alt+F</span> collapses the block under the cursor &mdash; everything indented past the line it starts on, closing brace excluded &mdash; and leaves a <span class="inline-code">&#9656;</span> in the gutter with a <span class="inline-code">&ctdot;&nbsp;12</span> where the text stopped. <span class="inline-code">Alt+F</span> again opens it, <span class="inline-code">Ctrl+Shift+E</span> opens every fold, and a click in that gutter column works on any line you point at. A folded region is one row: arrows step over it, the scrollbar counts it, a jump into it opens it. Folds are view state &mdash; never saved, never in the undo stack, never marking the file modified &mdash; but they follow the text, so a line inserted above carries the fold down and one inserted inside it grows.</p>
+          <p><span class="inline-code">Alt+F</span> collapses the block under the cursor &mdash; everything indented past the line it starts on, closing brace excluded &mdash; and leaves a <span class="inline-code">&#9656;</span> in the gutter with a <span class="inline-code">&ctdot;&nbsp;12</span> where the text stopped. With a selection it folds exactly those lines instead, which is the only way to fold a range indentation cannot describe. <span class="inline-code">Alt+F</span> again opens it, <span class="inline-code">Ctrl+Shift+F</span> folds every block at once, <span class="inline-code">Ctrl+Shift+E</span> opens them all, and a click on the gutter column or on the count does the same thing. A folded region is one row: arrows step over it, the scrollbar counts it, a jump into it opens it. Folds are view state &mdash; never saved, never in the undo stack, never marking the file modified &mdash; but they follow the text, so a line inserted above carries the fold down and one inserted inside it grows.</p>
         </article>
       </div>
     </div>
@@ -921,7 +921,7 @@
       <div class="sec-head">
         <p class="eyebrow">Muscle memory</p>
         <h2>Shortcuts that don&rsquo;t need a cheat sheet</h2>
-        <p>Every binding is remappable in <span class="inline-code">config.toml</span>. <span class="inline-code">F1</span> builds its help screen from your live keymap, so it never goes stale.</p>
+        <p>Every binding is remappable in <span class="inline-code">config.toml</span>. <span class="inline-code">F1</span> builds its help screen from your live keymap, so it never goes stale. These are the ones you will use most &mdash; <a href="https://github.com/r3dc4p0/vibe/blob/main/docs/commands.md">all 70 commands, with their ids and default keys&nbsp;&#8599;</a></p>
       </div>
 
       <div class="keys">
@@ -944,6 +944,7 @@
         <div class="key-row"><span class="what">Show whitespace</span><span class="combo"><kbd>Alt</kbd> <kbd>Z</kbd></span></div>
         <div class="key-row"><span class="what">Indent guides</span><span class="combo"><kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>G</kbd></span></div>
         <div class="key-row"><span class="what">Fold block</span><span class="combo"><kbd>Alt</kbd> <kbd>F</kbd></span></div>
+        <div class="key-row"><span class="what">Fold all</span><span class="combo"><kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>F</kbd></span></div>
         <div class="key-row"><span class="what">Unfold all</span><span class="combo"><kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>E</kbd></span></div>
         <div class="key-row"><span class="what">Bookmark panel</span><span class="combo"><kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>B</kbd></span></div>
         <div class="key-row"><span class="what">Focus bookmarks</span><span class="combo"><kbd>Ctrl</kbd> <kbd>Alt</kbd> <kbd>B</kbd></span></div>
@@ -1021,6 +1022,7 @@
     <div class="links">
       <a href="https://github.com/r3dc4p0/vibe">Source</a>
       <a href="https://github.com/r3dc4p0/vibe/blob/main/README.md">Docs</a>
+      <a href="https://github.com/r3dc4p0/vibe/blob/main/docs/commands.md">Commands</a>
       <a href="https://github.com/r3dc4p0/vibe/blob/main/docs/keybindings.md">Key bindings</a>
       <a href="https://github.com/r3dc4p0/vibe/blob/main/LICENSE">License</a>
       <a href="https://github.com/r3dc4p0/vibe/issues">Issues</a>

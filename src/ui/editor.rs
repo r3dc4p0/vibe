@@ -555,6 +555,12 @@ pub struct EditorRenderer<'a> {
     /// cursor every frame, moving the cursor in one pane would drag the other
     /// along, and the two views could never hold different positions.
     pub follows_cursor: bool,
+    /// Where the `⋯ n` summaries land, for the click handler.
+    ///
+    /// Filled while drawing and cleared by the caller each frame, because the
+    /// column a summary starts at is the end of the line it closes — arithmetic
+    /// only this file does.
+    pub fold_hits: &'a mut Vec<crate::ui::FoldHit>,
 }
 
 impl EditorRenderer<'_> {
@@ -1006,7 +1012,18 @@ impl EditorRenderer<'_> {
             };
             if ends_the_line {
                 if let Some(hidden) = self.doc.folds().hidden_count(line) {
-                    draw_fold_summary(buf, &ctx, y, painted.end_x, hidden, painted.truncated);
+                    let summary =
+                        draw_fold_summary(buf, &ctx, y, painted.end_x, hidden, painted.truncated);
+                    if let Some((start, end)) = summary {
+                        let document_id = self.doc.id();
+                        self.fold_hits.push(crate::ui::FoldHit {
+                            row: y,
+                            start,
+                            end,
+                            document_id,
+                            line,
+                        });
+                    }
                 }
             }
 
@@ -1038,6 +1055,10 @@ impl EditorRenderer<'_> {
 /// Skipped when the line was cut off at the right edge — the truncation marker
 /// owns that column — and when there is no room for the whole thing, because a
 /// count that has been sliced in half is worse than no count at all.
+///
+/// Returns the columns it painted, so the caller can record the summary as a
+/// click target: the summary is the one fold affordance that survives with the
+/// gutter turned off.
 fn draw_fold_summary(
     buf: &mut Buffer,
     ctx: &PaintCtx<'_>,
@@ -1045,15 +1066,15 @@ fn draw_fold_summary(
     end_x: u16,
     hidden: usize,
     truncated: bool,
-) {
+) -> Option<(u16, u16)> {
     if truncated {
-        return;
+        return None;
     }
     let label = format!(" ⋯ {hidden}");
     let width = label.chars().count() as u16;
     let right = ctx.text_x + ctx.text_w as u16;
     if end_x + width > right {
-        return;
+        return None;
     }
     buf.set_string(
         end_x,
@@ -1061,6 +1082,7 @@ fn draw_fold_summary(
         &label,
         Style::default().fg(ctx.theme.dim).bg(ctx.theme.bg),
     );
+    Some((end_x, end_x + width))
 }
 
 /// Draw the rule for every enclosing indentation level.
@@ -1186,6 +1208,7 @@ mod tests {
         let theme = Theme::dark();
         let search = SearchState::new();
         let mut cache = StateCache::new();
+        let mut hits = Vec::new();
         let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
         terminal
             .draw(|frame| {
@@ -1200,6 +1223,7 @@ mod tests {
                     focused: true,
                     bookmark_annotations: true,
                     follows_cursor: true,
+                    fold_hits: &mut hits,
                 };
                 r.render(frame, area);
             })

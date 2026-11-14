@@ -655,6 +655,16 @@ impl App {
                 // the pointer before the coordinates are mapped.
                 self.focus_pane_at(mouse.column, mouse.row);
                 let area = self.last_editor_area;
+                // The `⋯ n` that closes a fold is a button, drawn at the end of
+                // the line it closes. It is checked before anything else in the
+                // editor because it sits in the text area, where a click would
+                // otherwise move the caret into a line that is not all there.
+                if let Some(line) = self.fold_summary_at(mouse.column, mouse.row) {
+                    if self.gutter_click_count(line, mouse.column, mouse.row) == 1 {
+                        self.fold_at(line);
+                    }
+                    return;
+                }
                 if let Some(index) = self.active_index() {
                     let gutter = self.gutter_width(&self.buffers[index]);
                     if mouse.column >= area.x && mouse.column < area.x + gutter {
@@ -672,12 +682,19 @@ impl App {
                             // and it never reaches the bookmark gesture
                             // underneath — a click that folds the file would
                             // otherwise be the first half of a double-click.
+                            //
+                            // It does count as a click, though, or the second
+                            // half of a double-click on it would arrive as a
+                            // fresh press and unfold what the first half just
+                            // folded.
                             if crate::ui::editor::fold_column(
                                 self.buffers[index].line_count(),
                                 &self.config,
                             ) == Some(mouse.column - area.x)
                             {
-                                self.fold_at(line);
+                                if self.gutter_click_count(line, mouse.column, mouse.row) == 1 {
+                                    self.fold_at(line);
+                                }
                                 return;
                             }
                             if self.gutter_click_count(line, mouse.column, mouse.row) == 2 {
@@ -884,6 +901,12 @@ impl App {
         self.drag_anchor = Some(pos);
     }
 
+    /// Count repeated clicks on the same affordance: a gutter row, a fold
+    /// marker, or a fold's `⋯ n` summary.
+    ///
+    /// Returns 1 for a fresh press, then 2 and 3 for the repeats within the
+    /// double-click interval, cycling. Callers decide what a repeat means —
+    /// the gutter opens a caption, a fold does nothing the second time.
     fn gutter_click_count(&mut self, line: usize, column: u16, row: u16) -> u8 {
         let now = Instant::now();
         let repeated = self
@@ -1461,6 +1484,7 @@ impl App {
             }
             Command::ToggleWordWrap => self.toggle_word_wrap(),
             Command::ToggleFold => self.toggle_fold(),
+            Command::FoldAll => self.fold_all(),
             Command::UnfoldAll => self.unfold_all(),
             Command::ToggleBookmarkPanel => self.toggle_bookmark_panel(),
             Command::FocusBookmarkPanel => self.focus_bookmark_panel(),
@@ -1707,14 +1731,47 @@ impl App {
             return;
         };
         let (line, _) = doc.cursor_line_col();
+        // What the fold will cover is asked before the toggle: the count to
+        // report hangs off the fold's header, and with a selection that is not
+        // the cursor's line.
+        let span = doc.fold_span(line, tab_width);
         let outcome = doc.toggle_fold(line, tab_width);
-        let hidden = doc.folds().hidden_count(line).unwrap_or(0);
+        let hidden = span
+            .and_then(|(start, _)| doc.folds().hidden_count(start))
+            .unwrap_or(0);
         match outcome {
             Some(true) if hidden == 1 => self.info("Folded 1 line"),
             Some(true) => self.info(format!("Folded {hidden} lines")),
             Some(false) => self.info("Unfolded"),
             None => self.info("Nothing to fold on this line"),
         }
+    }
+
+    /// Collapse every block in the buffer, leaving a header per top-level block.
+    fn fold_all(&mut self) {
+        let tab_width = self.config.tab_width();
+        let Some(doc) = self.active_doc_mut() else {
+            return;
+        };
+        match doc.fold_all(tab_width) {
+            0 => self.info("Nothing to fold"),
+            1 => self.info("Folded 1 block"),
+            n => self.info(format!("Folded {n} blocks")),
+        }
+    }
+
+    /// The fold whose `⋯ n` summary covers this cell, if any.
+    ///
+    /// The summaries are recorded by the renderer, because the column one starts
+    /// at is the end of the line it closes. Matching on the document as well as
+    /// the position keeps a stale hit from another buffer from answering.
+    fn fold_summary_at(&self, column: u16, row: u16) -> Option<usize> {
+        let doc_id = self.buffers.get(self.active_index()?)?.id();
+        self.ui
+            .fold_hits
+            .iter()
+            .find(|hit| hit.document_id == doc_id && hit.contains(column, row))
+            .map(|hit| hit.line)
     }
 
     /// Fold or unfold a line, from a click on the gutter's fold column.
