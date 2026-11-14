@@ -18,14 +18,14 @@ handles large files without stalling, and never loses your work.
 │   2 ▏                                                                │
 │   3 ▏ /// A text buffer backed by a rope.                            │
 │┌────▏bookmark_2                                                      │
-│ └ 4 ▏ pub struct Document {                                          │
-│   5 ▏     storage: Box<dyn TextStorage>,                             │
-│   6 ▏     cursor: usize,                                             │
-│   7 ▏     history: History,                                          │
+│└  4▸▏ pub struct Document { ⋯ 3                                      │
 │   8 ▏ }                                                              │
+│   9 ▏                                                                │
+│  10▸▏ impl Document { ⋯ 5                                            │
+│  16 ▏ }                                                              │
 │     ▏ ~                                                              │
 │     ▏ ~                                                              │
-│ ● Rust  LF  UTF-8  Spaces: 4                      Ln 4, Col 12   12% │
+│ ● Rust  LF  UTF-8  Spaces: 4                      Ln 4, Col 12   24% │
 │ Ctrl+s save   ·   Ctrl+f find   ·   Ctrl+p open file   ·   F1 help   │
 └──────────────────────────────────────────────────────────────────────┘
 ```
@@ -123,7 +123,7 @@ vibe --key-report       # explain which shortcuts this terminal takes or merges
 
 Every binding is a command with a stable id, remappable in `config.toml` and
 reachable from the palette even when unbound. **[docs/commands.md](docs/commands.md)
-lists all 69** with their ids and default keys; `vibe --list-keys` prints the
+lists all 70** with their ids and default keys; `vibe --list-keys` prints the
 same for your own configuration.
 
 The essentials:
@@ -140,6 +140,7 @@ The essentials:
 | `Ctrl+D` | Add a cursor at the next occurrence |
 | `Ctrl+G` / `Ctrl+Tab` | Go to line / Next buffer |
 | `Alt+D` / `Alt+W` / `Alt+F` | Compare file / Word wrap / Fold block |
+| `Ctrl+Shift+F` / `Ctrl+Shift+E` | Fold every block / open every fold |
 | `Ctrl+Shift+B` | Bookmark panel |
 | `F1` / `F2` | Help / Which keys reach Vibe |
 

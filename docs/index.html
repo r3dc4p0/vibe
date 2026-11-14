@@ -343,6 +343,12 @@
      so the numbers stay put whether or not a line is marked. */
   .term .gutter .mk { position: absolute; left: 0; color: var(--mark); }
 
+  /* The fold marker sits in the air column between the digits and the text, the
+     one column a number never reaches, so a fold costs no width. The count that
+     closes a folded header is dim for the same reason the marker is. */
+  .term .gutter .fold { position: absolute; right: 4px; color: var(--fg-faint); }
+  .term .fold-n { color: var(--fg-faint); }
+
   /* A caption hangs off the gutter: a corner, a rule out to the text edge, and
      the name where the code would start. It takes a row of its own and gives
      it back the moment the panel is closed. */
@@ -712,6 +718,7 @@
     /* Narrow screens: shrink the mockup rather than let it hang off the edge. */
     .term { min-width: 460px; font-size: 11.5px; }
     .term .gutter { flex-basis: 38px; padding-right: 10px; }
+    .term .gutter .fold { right: 2px; }
     pre { font-size: 11.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
   }
 
@@ -774,7 +781,7 @@
         </div>
 
         <div class="term-scroll">
-          <div class="term" role="img" aria-label="Screenshot of Vibe editing a Rust source file: a top bar, three buffer tabs, a line-number gutter with a bookmark mark and its caption row, syntax-highlighted code, a status bar and a hint bar.">
+          <div class="term" role="img" aria-label="Screenshot of Vibe editing a Rust source file: a top bar, three buffer tabs, a line-number gutter with a bookmark mark and its caption row, syntax-highlighted code with one block folded to a header and a count of the lines it hid, a status bar and a hint bar.">
             <div class="bar top">
               <span class="left">VIBE <span class="path">&middot; src/buffer/mod.rs</span> <span class="dot-mod">&#9679;</span></span>
               <span class="right">3 buffers&nbsp;&nbsp;&nbsp;v0.12.1</span>
@@ -797,12 +804,7 @@
               <div class="row"><span class="gutter">8</span><span class="code-body"><span class="op">}</span></span></div>
               <div class="row"><span class="gutter">9</span><span class="code-body"></span></div>
               <div class="row caption"><span class="gutter">┌</span><span class="code-body">bookmark_2</span></div>
-              <div class="row"><span class="gutter"><span class="mk">└</span>10</span><span class="code-body"><span class="kw">impl</span> <span class="ty">Document</span> <span class="op">{</span></span></div>
-              <div class="row"><span class="gutter">11</span><span class="code-body">    <span class="kw">pub fn</span> <span class="fn">insert</span><span class="op">(&amp;</span><span class="kw">mut</span> self<span class="op">,</span> at<span class="op">:</span> <span class="ty">usize</span><span class="op">,</span> text<span class="op">:</span> <span class="op">&amp;</span><span class="ty">str</span><span class="op">)</span> <span class="op">{</span></span></div>
-              <div class="row"><span class="gutter">12</span><span class="code-body">        <span class="kw">let</span> tx <span class="op">=</span> self<span class="op">.</span>history<span class="op">.</span><span class="fn">begin</span><span class="op">(</span><span class="ty">TxKind</span><span class="op">::</span><span class="ty">Insert</span><span class="op">);</span></span></div>
-              <div class="row"><span class="gutter">13</span><span class="code-body">        self<span class="op">.</span>storage<span class="op">.</span><span class="fn">insert</span><span class="op">(</span>at<span class="op">,</span> text<span class="op">);</span></span></div>
-              <div class="row"><span class="gutter">14</span><span class="code-body">        self<span class="op">.</span>history<span class="op">.</span><span class="fn">commit</span><span class="op">(</span>tx<span class="op">,</span> at<span class="op">,</span> <span class="st">""</span><span class="op">,</span> text<span class="op">);</span></span></div>
-              <div class="row"><span class="gutter">15</span><span class="code-body">    <span class="op">}</span></span></div>
+              <div class="row"><span class="gutter"><span class="mk">└</span><span class="fold" aria-hidden="true">▸</span>10</span><span class="code-body"><span class="kw">impl</span> <span class="ty">Document</span> <span class="op">{</span> <span class="fold-n">⋯ 5</span></span></div>
               <div class="row"><span class="gutter">16</span><span class="code-body"><span class="op">}</span></span></div>
             </div>
 
@@ -824,7 +826,7 @@
           </div>
         </div>
       </div>
-      <p class="caption">The actual interface &mdash; gutter, tabs, a bookmark and its caption, syntax highlighting, status bar, contextual hints.</p>
+      <p class="caption">The actual interface &mdash; gutter, tabs, a bookmark and its caption, a folded block with the count of the lines it hid, syntax highlighting, status bar, contextual hints.</p>
     </div>
   </section>
 
