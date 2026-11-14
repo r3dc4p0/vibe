@@ -439,15 +439,33 @@ impl Document {
     /// user typed, not the last thing they looked at.
     pub fn toggle_fold(&mut self, line: usize, tab_width: usize) -> Option<bool> {
         let (start, end) = self.fold_span(line, tab_width)?;
+        Some(self.toggle_span(start, end))
+    }
+
+    /// Fold or unfold exactly the block headed at `line`, ignoring the
+    /// selection.
+    ///
+    /// This is what a click means. A pointer on a gutter marker or on the `⋯ n`
+    /// that closes a block names that line, so re-reading the click as "the
+    /// selection" would make the summary fold the selection instead of opening
+    /// the block it belongs to — hiding more text than the one line the user
+    /// pointed at, which is the opposite of what the button says.
+    pub fn toggle_fold_line(&mut self, line: usize, tab_width: usize) -> Option<bool> {
+        let end = folds::block_end(self.storage.as_ref(), line, tab_width)?;
+        Some(self.toggle_span(line, end))
+    }
+
+    /// Close `start..=end`, or open it when it is already closed.
+    fn toggle_span(&mut self, start: usize, end: usize) -> bool {
         if self.folds.remove(start) {
-            return Some(false);
+            return false;
         }
         self.folds.insert(start, end);
         // The caret cannot stay in a region that is no longer on screen — and
         // that goes for every secondary caret folded away with it.
         self.settle_cursor(false);
         self.settle_extra_carets(false);
-        Some(true)
+        true
     }
 
     /// The lines a fold on `line` would cover: the selection when it spans more

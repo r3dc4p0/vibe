@@ -549,3 +549,92 @@ fn a_stacked_cursor_does_not_rest_inside_a_fold() {
         "past the fold, not in it"
     );
 }
+
+/// Where the `⋯ n` of the first folded line landed on screen.
+fn summary_cell(app: &mut vibe::app::App, width: u16, height: u16) -> (u16, u16) {
+    let rows = screen(app, width, height);
+    rows.iter()
+        .enumerate()
+        .find_map(|(y, line)| {
+            // The gutter is drawn in multi-byte glyphs, so the byte offset of
+            // the ellipsis is not the column it was painted in.
+            let at = line.find('⋯')?;
+            Some((y as u16, line[..at].chars().count() as u16))
+        })
+        .expect("the folded line says how much it hid")
+}
+
+#[test]
+fn a_click_on_the_summary_opens_it_even_with_a_selection() {
+    // A click names one line. A selection left over from before the click must
+    // not be read as the thing to fold: the summary belongs to a block, and
+    // pressing it has to open that block rather than hide the selection too.
+    let scratch = Scratch::new();
+    let mut app = fold_editor(&scratch);
+    type_str(&mut app, BLOCK);
+    app.active_doc_mut().unwrap().goto_line(0);
+    fold(&mut app);
+    assert_eq!(app.active_doc().unwrap().folds().hidden_at(0), Some(2));
+
+    // Two whole lines below the fold stay selected.
+    app.active_doc_mut().unwrap().select_range(34..40);
+    assert!(app.active_doc().unwrap().has_selection());
+
+    let (row, column) = summary_cell(&mut app, 80, 16);
+    click(&mut app, column, row);
+
+    assert!(
+        app.active_doc().unwrap().folds().is_empty(),
+        "the summary opens its own block: {:?}",
+        app.active_doc().unwrap().folds().iter().collect::<Vec<_>>()
+    );
+    assert!(
+        !app.active_doc().unwrap().is_line_hidden(4),
+        "and hides nothing else"
+    );
+}
+
+#[test]
+fn a_click_on_the_fold_marker_folds_the_line_it_names() {
+    // Same rule for the gutter marker: the pointer is on line 0's marker, so
+    // line 0 is what folds — not the two lines that happen to be selected.
+    let scratch = Scratch::new();
+    let mut app = fold_editor(&scratch);
+    type_str(&mut app, BLOCK);
+    screen(&mut app, 80, 16);
+    app.active_doc_mut().unwrap().select_range(34..40);
+
+    let area = app.editor_area();
+    let column = vibe::ui::editor::fold_column(app.active_doc().unwrap().line_count(), &app.config)
+        .expect("a gutter to draw the marker in");
+    click(&mut app, area.x + column, area.y);
+
+    assert_eq!(
+        app.active_doc().unwrap().folds().iter().collect::<Vec<_>>(),
+        vec![(0, 2)],
+        "line 0's block, and nothing around it"
+    );
+}
+
+#[test]
+fn the_summary_is_clickable_with_no_gutter_to_click() {
+    // The summary is the only fold affordance left when the line numbers are
+    // turned off, so it has to work on its own.
+    let scratch = Scratch::new();
+    let mut app = editor_with(scratch.path(), |config| {
+        config.editor.auto_pairs = false;
+        config.editor.auto_indent = false;
+        config.editor.line_numbers = false;
+    });
+    type_str(&mut app, BLOCK);
+    app.active_doc_mut().unwrap().goto_line(0);
+    fold(&mut app);
+    assert_eq!(app.active_doc().unwrap().folds().hidden_at(0), Some(2));
+
+    let (row, column) = summary_cell(&mut app, 80, 16);
+    click(&mut app, column, row);
+    assert!(
+        app.active_doc().unwrap().folds().is_empty(),
+        "the count still opens the block without a gutter"
+    );
+}

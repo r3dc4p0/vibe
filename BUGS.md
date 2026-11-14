@@ -1,5 +1,12 @@
 # Bug Report — for the resolving agent
 
+> **STATUS 2026-11-14 (v0.12.1): every item in this file is closed.** Re-checked
+> against HEAD rather than trusted from the annotations: the five bugs from the
+> 0.8 review, the four from the 0.11 fold review and the housekeeping are all
+> still fixed, with their regression tests passing. The 0.12 review added one
+> more (F5, below) and fixed it in the same pass. Gate at this check: clippy 0
+> warnings, `fmt --check` clean, **718 tests pass, 0 fail**.
+
 > **VERIFICATION 2026-11-08 (post-fix):** all items below have been fixed and
 > re-verified. `cargo check` / `clippy -D warnings` / `fmt --check` clean;
 > **639 tests pass, 0 fail** (new regression tests included: whole-word
@@ -327,3 +334,64 @@ leave stale folds; per-document fold state shared by two panes (deliberate,
 consistent); wrap+folding heights (`LayoutCache::with_folds`); the "..."
 summary with count; folding is not dirty/undoable; the last-screen
 reachability edge case (tested).
+
+---
+
+# Fold click review (v0.12.0, commit d7eb716) — 2026-11-14
+
+Review of `d7eb716 "Fold everything, or fold exactly what was selected"`:
+`Ctrl+Shift+F` (fold every block), `Alt+F` on a selection, the clickable
+`⋯ n` summary, and the fold-column double-click fix.
+
+The new code is sound where it is new. `Folds::replace_all` keeps adjacent
+blocks apart (the `insert` merge would eat the second header) and ignores
+empty and inverted ranges. `fold_all` walks the buffer once — each line read
+once to find a block's end, once to skip its body — so it stays linear where
+asking every line would be quadratic on a nested file, and it emits only the
+outermost blocks, which are the only headers still on the page. The summary
+hit rectangles are recorded from the columns the renderer actually painted,
+and cleared at the start of every frame, so a stale rectangle cannot answer a
+click. The double-click fix is right: the fold column now counts as a click,
+so the second half of a gesture no longer arrives as a fresh press.
+
+## F5 — A click on a fold affordance folds the selection instead (MEDIUM, fixed)
+
+**File:** `src/app/mod.rs:1781` (`fold_at`) calling `Document::toggle_fold`,
+which resolves the span through `fold_span` — and `fold_span` prefers the
+selection over the line it was given.
+
+`Alt+F` is *meant* to fold the selection, so the span is selection-aware. A
+click is not: the pointer names one line — the marker in the gutter, or the
+`⋯ n` that closes a block. Both click paths reach `fold_at`, and neither
+clears the selection first, so a selection left over from before the click
+was read as the thing to fold.
+
+Two symptoms, both reproduced:
+
+- **The `⋯ n` button did the opposite of its job.** With lines 3–4 selected
+  and a fold at `(0, 2)`, clicking the count resolved the span to `(3, 4)`,
+  found no fold keyed at 3, inserted one, and `Folds::insert` merged it with
+  `(0, 2)` into `(0, 4)`. The block the button belongs to stayed closed and
+  the file collapsed from the header to the end of the selection — one click
+  hid *more* than the one line it pointed at.
+- **A click on line 0's gutter marker folded lines 3–4** and left line 0
+  alone.
+
+**Fix.** `Document::toggle_fold_line(line, tab_width)` resolves the block with
+`folds::block_end` and never consults the selection; both paths share the
+`toggle_span` body. `App::fold_at` — the only click entry point — calls it, so
+`Alt+F` keeps the selection behaviour and the pointer keeps its literal
+meaning. Regression tests: `a_click_on_the_summary_opens_it_even_with_a_selection`
+and `a_click_on_the_fold_marker_folds_the_line_it_names` (both fail on the old
+code), plus `the_summary_is_clickable_with_no_gutter_to_click` for the case the
+summary exists to serve.
+
+Verified after the fix: clippy 0 warnings, `fmt --check` clean, **718 tests
+pass, 0 fail**.
+
+## Solid areas (this batch)
+
+`replace_all` disjointness and empty-range handling; `fold_all` linearity and
+outermost-only output; the summary's hit rectangle matching the painted
+columns; `fold_hits` cleared per frame; the double-click counter; `fold_all`
+settling the caret and the extra carets out of newly hidden lines.

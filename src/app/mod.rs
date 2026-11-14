@@ -1774,7 +1774,13 @@ impl App {
             .map(|hit| hit.line)
     }
 
-    /// Fold or unfold a line, from a click on the gutter's fold column.
+    /// Fold or unfold a line, from a click on the gutter's fold column or on a
+    /// fold's `⋯ n` summary.
+    ///
+    /// The line is taken as given rather than read through the selection: a
+    /// click names one line, and a selection left over from before the click
+    /// must not turn a click on a summary into a fold over the selection — the
+    /// button would then hide more text than the block it belongs to.
     ///
     /// Silent on a line that opens nothing: the pointer was aimed at a marker
     /// that is not there, and a message for that would be noise.
@@ -1783,7 +1789,7 @@ impl App {
         let Some(doc) = self.active_doc_mut() else {
             return;
         };
-        doc.toggle_fold(line, tab_width);
+        doc.toggle_fold_line(line, tab_width);
     }
 
     /// Expand every fold in the buffer — the way out of a file that has been
