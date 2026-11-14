@@ -8,11 +8,11 @@ handles large files without stalling, and never loses your work.
 
 [Website](https://r3dc4p0.github.io/vibe/) · [Commands](docs/commands.md) ·
 [Key bindings](docs/keybindings.md) · [Architecture](docs/architecture.md) ·
-[Roadmap](docs/roadmap.md) · **v0.11.1**
+[Roadmap](docs/roadmap.md) · **v0.12.0**
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│ VIBE · src/buffer/mod.rs ●                        2 buffers  v0.11.1 │
+│ VIBE · src/buffer/mod.rs ●                        2 buffers  v0.12.0 │
 │ ▏ storage.rs ▏ mod.rs ●                                              │
 │   1 ▏ use std::ops::Range;                                           │
 │   2 ▏                                                                │
