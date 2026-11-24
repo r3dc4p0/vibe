@@ -4,7 +4,7 @@ Every binding is a *command*, and every command has a stable id — the same id
 in the command palette (`Ctrl+Shift+P`), in `config.toml`, and in `--list-keys`.
 A command you never bind is still reachable: open the palette and type its name.
 
-This page lists all 70 commands in the editor, grouped the way the palette
+This page lists all 71 commands in the editor, grouped the way the palette
 groups them, with the keys each one has by default.
 
 ```sh
@@ -18,7 +18,7 @@ before concluding that a key does nothing.
 | Section | Commands |
 | --- | --- |
 | [Files](#files) | 13 |
-| [Editing](#editing) | 20 |
+| [Editing](#editing) | 21 |
 | [Navigation](#navigation) | 3 |
 | [Search](#search) | 7 |
 | [View and appearance](#view-and-appearance) | 24 |
@@ -68,6 +68,7 @@ Everything that changes text, and the carets that change it.
 | Add Cursor Below | `edit.addCursorBelow` | `Ctrl+Shift+Down`, `Ctrl+Alt+Down` |
 | Add Cursor at Next Occurrence | `edit.addCursorToNext` | `Ctrl+D` |
 | Collapse to One Cursor | `edit.collapseCursors` | — |
+| Repeat Last Command | `edit.repeatLast` | `F4` |
 | Set Indentation… | `edit.setIndentation` | `Ctrl+Shift+I` |
 | Toggle Auto-Close Pairs | `edit.toggleAutoPairs` | `Ctrl+Shift+A` |
 

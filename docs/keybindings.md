@@ -54,6 +54,7 @@ have decided. Turn the watch off with `files.watch_external_changes = false`.
 | `Ctrl+Shift+W` | `view.wordCount` | Word, character and line count |
 | `Ctrl+Shift+A` | `edit.toggleAutoPairs` | Auto-close brackets and quotes on / off |
 | `Ctrl+Shift+I` | `edit.setIndentation` | Choose this buffer's indentation: tabs, 2, 4 or 8 spaces |
+| `F4` | `edit.repeatLast` | Run the last command again — see [repeating the last command](#repeating-the-last-command) |
 
 ## Indentation
 
@@ -273,6 +274,22 @@ flat and the arrows go back to being the text cursor's.
 Type to search and the sections go away: a search ranks by how well the name
 matches, and a list in match order has no runs to group. Clearing the query
 brings them back.
+
+### Repeating the last command
+
+Running something from the menu used to be a one-way trip: a command with no
+shortcut could only be run again by opening the menu again. The right-hand end
+of the shortcut bar now names it — `F4 repeat Trim Trailing Whitespace` — and
+`F4`, or a click on it, runs it a second time and a third. The slot follows
+whatever ran last, however it ran: a shortcut, a click on the bar, a choice in
+the palette.
+
+The menu itself is never recorded, nor is help, the key report or quitting: the
+first press is already the shortest way to those, and recording them would
+replace the name of the command you ran with the name of the menu you ran it
+from. The slot steps aside while an overlay is open, where the bar's job is to
+teach the overlay's keys, and when the bar is too narrow to hold both it drops
+the slot rather than the hints.
 
 ## View and help
 

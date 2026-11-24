@@ -38,6 +38,10 @@ Ordered by what a user notices first, not by what is easiest.
   text stopped; `Ctrl+Shift+F` folds every block at once and `Ctrl+Shift+E` opens
   them again. Folds are view state — never saved, never an undo step, never
   dirtying the buffer — but they follow the text as it is edited
+- Repeat last command: the shortcut bar's right-hand end names the command that
+  ran last — a shortcut, a click or a palette choice — and `F4` runs it again;
+  the slot steps aside while an overlay is up, and the hints keep the row when
+  the bar is too narrow for both
 - Unit, integration, UI and property tests; Criterion benchmarks
 
 ## Next

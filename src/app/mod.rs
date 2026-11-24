@@ -122,6 +122,12 @@ pub struct App {
     /// Clicks on the same line-number gutter rectangle.
     last_gutter_click: Option<(Instant, usize, u16, u16)>,
     gutter_click_count: u8,
+    /// The command a repeat would run, if any.
+    ///
+    /// Recorded in `execute`, which is the funnel every entry point goes
+    /// through — a shortcut, a click on the hint bar, the palette — so the
+    /// record never depends on how the command was reached.
+    last_command: Option<Command>,
     /// Where a drag started, so the selection grows from the press point.
     drag_anchor: Option<usize>,
     /// Editor area from the last frame, for mouse coordinate mapping.
@@ -270,6 +276,7 @@ impl App {
             click_count: 0,
             last_gutter_click: None,
             gutter_click_count: 0,
+            last_command: None,
             drag_anchor: None,
             last_editor_area: Rect::default(),
             last_tabs_area: Rect::default(),
@@ -1331,6 +1338,7 @@ impl App {
     /// Execute a named command.
     pub fn execute(&mut self, cmd: Command) {
         debug!("command: {}", cmd.id());
+        self.remember_command(cmd);
         match cmd {
             Command::NewBuffer => self.new_buffer(),
             Command::Open => self.open_prompt(),
@@ -1394,6 +1402,7 @@ impl App {
             Command::AddCursorBelow => self.add_cursor_vertical(false),
             Command::AddCursorToNextOccurrence => self.add_cursor_next_occurrence(),
             Command::CollapseCursors => self.collapse_cursors(),
+            Command::RepeatLastCommand => self.repeat_last(),
 
             Command::GotoLine => self.goto_prompt(),
             Command::SetIndentation => self.indent_prompt(),
@@ -1493,6 +1502,34 @@ impl App {
             Command::Help => self.open_help(),
             Command::KeyReport => self.open_key_report(),
             Command::CommandPalette => self.open_palette(ui::PaletteMode::Commands),
+        }
+    }
+
+    /// Remember a command as the one a repeat would run.
+    ///
+    /// Called from `execute` rather than from each entry point because this is
+    /// the single funnel: a shortcut, a click on the hint bar and a choice in
+    /// the palette all arrive here, and a record that only knew about one of
+    /// them would be wrong for the other two.
+    fn remember_command(&mut self, cmd: Command) {
+        if cmd.repeatable() {
+            self.last_command = Some(cmd);
+        }
+    }
+
+    /// The command a repeat would run, if any.
+    pub fn last_command(&self) -> Option<Command> {
+        self.last_command
+    }
+
+    /// Run the last command again.
+    ///
+    /// `RepeatLastCommand` is not repeatable, so the call cannot recurse: what
+    /// this runs is the command before it, not itself.
+    fn repeat_last(&mut self) {
+        match self.last_command {
+            Some(cmd) => self.execute(cmd),
+            None => self.info("Nothing to repeat yet"),
         }
     }
 

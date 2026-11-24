@@ -583,12 +583,17 @@ pub fn draw_status(buf: &mut Buffer, area: Rect, app: &App) {
 /// clickable.
 struct Hint {
     key: String,
-    label: &'static str,
+    /// Owned rather than `&'static str` because one hint — the repeat slot —
+    /// names a command chosen at runtime.
+    label: String,
     command: Option<Command>,
 }
 
 /// What separates two hints.
 const HINT_SEPARATOR: &str = "   ·   ";
+
+/// Columns kept clear between the last hint and the repeat slot.
+const SLOT_GAP: usize = 3;
 
 /// The hints for the current mode.
 fn hint_list(app: &App) -> Vec<Hint> {
@@ -598,12 +603,12 @@ fn hint_list(app: &App) -> Vec<Hint> {
     // so the label has to be given rather than looked up.
     let bound = |command: Command, label: &'static str| Hint {
         key: km.label_for(command),
-        label,
+        label: label.to_string(),
         command: Some(command),
     };
     let raw = |key: &str, label: &'static str, command: Option<Command>| Hint {
         key: key.to_string(),
-        label,
+        label: label.to_string(),
         command,
     };
 
@@ -639,6 +644,48 @@ fn hint_list(app: &App) -> Vec<Hint> {
     hints.into_iter().filter(|h| !h.key.is_empty()).collect()
 }
 
+/// The last command, as the right-hand slot that repeats it.
+///
+/// Deliberately not part of `hint_list`: those hints say what to do next, and
+/// this one says what was just done. It is hidden while an overlay is up, where
+/// the bar's job is to teach the overlay's own keys.
+fn repeat_hint(app: &App) -> Option<Hint> {
+    if !matches!(app.ui.overlay.kind(), OverlayKind::None) {
+        return None;
+    }
+    let command = app.last_command()?;
+    let key = app.keymap.label_for(Command::RepeatLastCommand);
+    if key.is_empty() {
+        return None;
+    }
+    Some(Hint {
+        key,
+        label: format!("repeat {}", command.title()),
+        command: Some(Command::RepeatLastCommand),
+    })
+}
+
+/// Trim the repeat slot so it can share the row with the hints.
+///
+/// The slot never takes more than half the bar: past that it would describe the
+/// last command at the expense of the keys the bar exists to teach. Below a
+/// useful width it is dropped rather than reduced to a stub, and the hints keep
+/// the whole row.
+fn fit_slot(mut hint: Hint, width: usize) -> Option<Hint> {
+    let max = (width / 2).saturating_sub(SLOT_GAP);
+    let key = hint.key.chars().count();
+    if max < key + 5 {
+        return None;
+    }
+    hint.label = fit(&hint.label, max - key - 1);
+    Some(hint)
+}
+
+/// Columns a hint occupies: its key, a space, and its label.
+fn hint_width(hint: &Hint) -> usize {
+    hint.key.chars().count() + 1 + hint.label.chars().count()
+}
+
 pub fn draw_hints(buf: &mut Buffer, area: Rect, app: &mut App) {
     if area.height == 0 {
         return;
@@ -653,19 +700,26 @@ pub fn draw_hints(buf: &mut Buffer, area: Rect, app: &mut App) {
 
     let hints = hint_list(app);
     let hovered = app.ui.hovered_hint;
+
+    // The slot is measured before the hints are laid out: the bar is one row,
+    // and the two have to share it without either running into the other.
+    let slot = repeat_hint(app).and_then(|hint| fit_slot(hint, area.width as usize));
+    let reserve = slot.as_ref().map_or(0, |h| hint_width(h) + SLOT_GAP);
+
+    let right = area.x + area.width;
     let paint = HintPaint {
         theme: &theme,
         row: area.y,
-        right: area.x + area.width,
+        // Everything from here on is the slot's, so the hints stop short of it.
+        right: right.saturating_sub(reserve as u16),
         two_tone: deco.two_tone_hints,
     };
-    let right = paint.right;
 
     let mut hits: Vec<crate::ui::HintHit> = Vec::new();
     let mut x = area.x + 1;
     for (index, hint) in hints.iter().enumerate() {
         if index > 0 {
-            let shown = fit(HINT_SEPARATOR, right.saturating_sub(x) as usize);
+            let shown = fit(HINT_SEPARATOR, paint.right.saturating_sub(x) as usize);
             buf.set_string(
                 x,
                 area.y,
@@ -674,7 +728,7 @@ pub fn draw_hints(buf: &mut Buffer, area: Rect, app: &mut App) {
             );
             x += shown.chars().count() as u16;
         }
-        if x >= right {
+        if x >= paint.right {
             break;
         }
         // The hover index counts the *clickable* hints, which is the same list
@@ -685,11 +739,32 @@ pub fn draw_hints(buf: &mut Buffer, area: Rect, app: &mut App) {
             hits.push(crate::ui::HintHit {
                 row: area.y,
                 start: x,
-                end: (x + width).min(right),
+                end: (x + width).min(paint.right),
                 command,
             });
         }
         x += width;
+    }
+
+    // The record sits against the right edge, one column in like the hints are
+    // one column in on the left, so the row reads as a bar and not as a list.
+    if let Some(hint) = &slot {
+        let width = hint_width(hint) as u16;
+        let x = right.saturating_sub(1 + width);
+        let slot_paint = HintPaint {
+            right: right.saturating_sub(1),
+            ..paint
+        };
+        let is_hovered = hovered == Some(hits.len());
+        let painted = paint_hint(buf, x, &slot_paint, hint, is_hovered);
+        if let Some(command) = hint.command {
+            hits.push(crate::ui::HintHit {
+                row: area.y,
+                start: x,
+                end: (x + painted).min(right),
+                command,
+            });
+        }
     }
 
     app.ui.hint_hits = hits;

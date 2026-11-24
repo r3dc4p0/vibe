@@ -76,6 +76,12 @@ pub enum Command {
     AddCursorBelow,
     AddCursorToNextOccurrence,
     CollapseCursors,
+    /// Re-run whatever ran last.
+    ///
+    /// Filed with the editing commands because that is what it usually
+    /// repeats, and because a command that acts on the buffer belongs there
+    /// rather than with the view toggles.
+    RepeatLastCommand,
 
     // Navigate
     GotoLine,
@@ -159,6 +165,7 @@ impl Command {
         Command::AddCursorBelow,
         Command::AddCursorToNextOccurrence,
         Command::CollapseCursors,
+        Command::RepeatLastCommand,
         Command::GotoLine,
         Command::SetIndentation,
         Command::GotoBufferStart,
@@ -234,6 +241,7 @@ impl Command {
             Command::AddCursorBelow => "edit.addCursorBelow",
             Command::AddCursorToNextOccurrence => "edit.addCursorToNext",
             Command::CollapseCursors => "edit.collapseCursors",
+            Command::RepeatLastCommand => "edit.repeatLast",
             Command::GotoLine => "nav.gotoLine",
             Command::SetIndentation => "edit.setIndentation",
             Command::GotoBufferStart => "nav.bufferStart",
@@ -310,6 +318,7 @@ impl Command {
             Command::AddCursorBelow => "Add Cursor Below",
             Command::AddCursorToNextOccurrence => "Add Cursor at Next Occurrence",
             Command::CollapseCursors => "Collapse to One Cursor",
+            Command::RepeatLastCommand => "Repeat Last Command",
             Command::GotoLine => "Go to Line…",
             Command::SetIndentation => "Set Indentation…",
             Command::GotoBufferStart => "Go to Start of Buffer",
@@ -384,6 +393,8 @@ impl Command {
             | Command::AddCursorBelow
             | Command::AddCursorToNextOccurrence
             | Command::CollapseCursors
+            // Repeats an action, which is what the rest of this group is.
+            | Command::RepeatLastCommand
             // Typing behaviour rather than something on screen, so it belongs
             // with the editing commands and not with the view toggles.
             | Command::ToggleAutoPairs => Category::Edit,
@@ -479,6 +490,9 @@ impl Command {
             Command::AddCursorAbove => &["ctrl+shift+up", "ctrl+alt+up"],
             Command::AddCursorBelow => &["ctrl+shift+down", "ctrl+alt+down"],
             Command::AddCursorToNextOccurrence => &["ctrl+d"],
+            // F4 is the key the rest of the world uses to repeat the last
+            // action, and the three function keys above it are taken.
+            Command::RepeatLastCommand => &["f4"],
             Command::SplitPane => &["ctrl+\\"],
             Command::ClosePane => &["ctrl+alt+w"],
             Command::FocusPaneLeft => &["ctrl+alt+left"],
@@ -510,6 +524,26 @@ impl Command {
     /// Look a command up by its stable id.
     pub fn from_id(id: &str) -> Option<Command> {
         Command::ALL.iter().copied().find(|c| c.id() == id)
+    }
+
+    /// True when a repeat slot should offer this command again.
+    ///
+    /// A command that only opens a surface — the palette, the help screen, the
+    /// key report — or that ends the session has nothing to repeat: the first
+    /// press is already the shortest way to it, and recording it would replace
+    /// the name of the command the user actually ran with the name of the menu
+    /// they ran it from. Repeat itself is excluded for the same reason: a
+    /// second press has to run what the first one ran, not the repeater.
+    pub fn repeatable(self) -> bool {
+        !matches!(
+            self,
+            Command::CommandPalette
+                | Command::Help
+                | Command::KeyReport
+                | Command::RepeatLastCommand
+                | Command::Quit
+                | Command::QuitAll
+        )
     }
 
     /// True when the command needs an open buffer.
@@ -566,7 +600,7 @@ mod tests {
     fn all_variants_are_listed() {
         // Guards against forgetting to add a new variant to `ALL`, which would
         // make it invisible to the palette and the keymap builder.
-        assert_eq!(Command::ALL.len(), 70);
+        assert_eq!(Command::ALL.len(), 71);
     }
 
     #[test]
@@ -581,6 +615,30 @@ mod tests {
     fn ids_are_namespaced() {
         for c in Command::ALL {
             assert!(c.id().contains('.'), "{} is not namespaced", c.id());
+        }
+    }
+
+    #[test]
+    fn the_surfaces_and_the_repeater_are_not_repeatable() {
+        // These either open something or end the session; repeating them would
+        // make the slot name the menu instead of the command.
+        for cmd in [
+            Command::CommandPalette,
+            Command::Help,
+            Command::KeyReport,
+            Command::RepeatLastCommand,
+            Command::Quit,
+            Command::QuitAll,
+        ] {
+            assert!(!cmd.repeatable(), "{} should not be repeatable", cmd.id());
+        }
+        for cmd in [
+            Command::Save,
+            Command::DuplicateLine,
+            Command::Find,
+            Command::FoldAll,
+        ] {
+            assert!(cmd.repeatable(), "{} should be repeatable", cmd.id());
         }
     }
 }

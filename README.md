@@ -86,6 +86,11 @@ modified — but they follow the text as it is edited.
 category, help built from the live keymap; hairline chrome, 17 languages, dark
 and light themes, indent guides, and word wrap that moves by visual rows.
 
+**Repeating a command** — the right-hand end of the shortcut bar names the last
+command you ran, however you ran it, and `F4` or a click on it runs it again.
+That is what makes a palette-only command usable twice: without it, the second
+run costs a second trip through the menu.
+
 ## Install
 
 ```sh
@@ -141,6 +146,7 @@ The essentials:
 | `Ctrl+G` / `Ctrl+Tab` | Go to line / Next buffer |
 | `Alt+D` / `Alt+W` / `Alt+F` | Compare file / Word wrap / Fold block |
 | `Ctrl+Shift+F` / `Ctrl+Shift+E` | Fold every block / open every fold |
+| `F4` | Run the last command again |
 | `Ctrl+Shift+B` | Bookmark panel |
 | `F1` / `F2` | Help / Which keys reach Vibe |
 
