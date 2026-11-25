@@ -3,6 +3,8 @@
 Every binding is a *command*, and every command has a stable id — the same id
 in the command palette (`Ctrl+Shift+P`), in `config.toml`, and in `--list-keys`.
 A command you never bind is still reachable: open the palette and type its name.
+A command whose chord the terminal keeps is reachable with `Ctrl+K` and the key
+it already had — see [the key bindings](keybindings.md#when-a-key-does-nothing-ctrlk).
 
 This page lists all 71 commands in the editor, grouped the way the palette
 groups them, with the keys each one has by default.

@@ -122,8 +122,10 @@ keyboard_enhancement = "auto"
 [keys]
 # "ctrl+shift+p" = "help.commandPalette"
 # "f5" = "file.reload"
-# "ctrl+k" = "edit.deleteLine"
+# "ctrl+alt+k" = "edit.deleteLine"
 # "ctrl+q" = ""
+# "ctrl+k" is the prefix for the terminal-proof keys (Ctrl+K, then the key
+# you meant); binding it here replaces that.
 
 # Colour overrides. Accepts "#rrggbb" and the 16 ANSI names (black, red, green,
 # yellow, blue, magenta, cyan, gray, darkgray, lightred, ... ).

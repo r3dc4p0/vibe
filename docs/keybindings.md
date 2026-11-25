@@ -442,9 +442,46 @@ In order of how much they cost:
    is what makes `Ctrl+Shift+S` its own key rather than `Ctrl+S`.
 3. **Rebind** — see below. Every command can be moved, and `--list-keys` prints
    the ids to move it to.
-4. **Use the palette.** It runs every command, so a lost shortcut is an
-   inconvenience rather than a dead feature — as long as the palette's own key
-   survives, which is why it is the first thing to rebind if the host takes it.
+4. **`Ctrl+K`, then the key you meant.** The same command without the
+   modifiers, on a prefix every terminal delivers — see below. This is the only
+   option that needs nothing from the terminal and no configuration.
+5. **Use the palette.** It runs every command, so a lost shortcut is an
+   inconvenience rather than a dead feature — and `Ctrl+K` `P` opens it even
+   where the host keeps `Ctrl+Shift+P`.
+
+### When a key does nothing: `Ctrl+K`
+
+`Ctrl+K` is a prefix. It is a plain control byte, which every terminal delivers,
+and nothing in the default keymap is bound to it. After it, the next key names a
+command by the key it already had: the modifiers are dropped, the key is kept.
+
+| Eaten | Press instead | Runs |
+| --- | --- | --- |
+| `Alt+F` | `Ctrl+K` `f` | Toggle Fold |
+| `Ctrl+Shift+F` | `Ctrl+K` `F` | Fold All |
+| `Ctrl+Shift+E` | `Ctrl+K` `E` | Unfold All |
+| `Alt+W` | `Ctrl+K` `w` | Toggle Word Wrap |
+| `Alt+Z` | `Ctrl+K` `z` | Toggle Whitespace |
+| `Alt+D` | `Ctrl+K` `d` | Compare With |
+| `Alt+Up` / `Alt+Down` | `Ctrl+K` `Up` / `Down` | Move Line Up / Down |
+| `Ctrl+Shift+P` | `Ctrl+K` `P` | Command Palette |
+| `Ctrl+Shift+S` | `Ctrl+K` `S` | Save As |
+| `Ctrl+Shift+Up` | `Ctrl+K` `Shift+Up` | Add Cursor Above |
+
+The shift is a tie-breaker rather than a requirement. Two commands claim `f`, so
+`Ctrl+K f` folds and `Ctrl+K F` folds everything; only one claims `e`, so either
+case unfolds. `Ctrl+K` followed by a key the layer does not know is not an
+error: the key goes on to do its own job, so a mistyped prefix costs one
+keystroke rather than two. `Esc` drops the prefix without cancelling anything
+else, and after a second and a half the prefix lapses on its own.
+
+The bar lists the layer while it waits, `F1` lists all of it, and each entry is
+a button. Every binding a terminal can take or merge has a slot but one:
+`Ctrl+Alt+W` (Close Pane), because `w` is word wrap's and `W` is word count's.
+Closing a pane is in the palette.
+
+Binding `ctrl+k` yourself in `[keys]` replaces the prefix — a deliberate
+rebinding beats a built-in.
 
 ## Rebinding
 
@@ -452,7 +489,7 @@ In order of how much they cost:
 [keys]
 "ctrl+shift+p" = "help.commandPalette"
 "f5"           = "file.reload"
-"ctrl+k"       = "edit.deleteLine"
+"ctrl+alt+k"   = "edit.deleteLine"
 "ctrl+q"       = ""            # an empty value removes the binding
 ```
 

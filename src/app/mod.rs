@@ -24,7 +24,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crossterm::event::{Event, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::layout::Rect;
 use tracing::{debug, error as log_error, info, warn as log_warn};
 
@@ -35,8 +35,9 @@ use crate::config::Config;
 use crate::editing;
 use crate::indent;
 use crate::input::{self, Action};
-use crate::keymap::Keymap;
+use crate::keymap::{KeyChord, Keymap};
 use crate::platform;
+use crate::safelayer;
 use crate::search::{Query, SearchState};
 use crate::syntax::StateCache;
 use crate::theme::Theme;
@@ -128,6 +129,12 @@ pub struct App {
     /// through — a shortcut, a click on the hint bar, the palette — so the
     /// record never depends on how the command was reached.
     last_command: Option<Command>,
+    /// When `Ctrl+K` armed the safe layer, if it is waiting for its key.
+    ///
+    /// A timestamp rather than a bool because the prefix expires: a `Ctrl+K`
+    /// pressed by accident must not swallow the next thing typed a minute
+    /// later.
+    safe_prefix: Option<Instant>,
     /// Where a drag started, so the selection grows from the press point.
     drag_anchor: Option<usize>,
     /// Editor area from the last frame, for mouse coordinate mapping.
@@ -277,6 +284,7 @@ impl App {
             last_gutter_click: None,
             gutter_click_count: 0,
             last_command: None,
+            safe_prefix: None,
             drag_anchor: None,
             last_editor_area: Rect::default(),
             last_tabs_area: Rect::default(),
@@ -380,6 +388,10 @@ impl App {
     pub fn run(&mut self, terminal: &mut crate::terminal::VibeTerminal) -> crate::Result<()> {
         info!("event loop started");
         while self.running {
+            // A lapsed `Ctrl+K` has to be forgotten before the frame that
+            // draws the bar, or the bar keeps advertising a layer that is no
+            // longer waiting for anything.
+            self.expire_safe_prefix(Instant::now());
             // Draw first, then handle at most one event. Nothing repaints
             // between a state change and the frame that shows it, so the panes,
             // the dividers and the status bar are always painted from the same
@@ -526,6 +538,9 @@ impl App {
                 self.handle_key(key);
             }
             Event::Paste(text) => {
+                // A paste is a decision made elsewhere; it ends whatever
+                // `Ctrl+K` was waiting for rather than answering it.
+                self.safe_prefix = None;
                 if !self.ui.overlay.captures_input() {
                     if self.ui.bookmarks.focused {
                         self.insert_bookmark_caption(&text);
@@ -554,12 +569,33 @@ impl App {
             return;
         }
 
+        // The safe layer owns the next key. It is asked first because the key
+        // it is waiting for may be one the editor would otherwise use — `w` is
+        // text, `↑` is a motion — and the layer has already been promised it.
+        if self.safe_prefix.is_some() {
+            if self.safe_prefix_expired() {
+                self.safe_prefix = None;
+            } else {
+                self.handle_safe_key(key);
+                return;
+            }
+        }
+
         // The diff view owns the scrolling keys while it is open. Everything
         // else still resolves through the keymap — quitting, the palette, the
         // theme — but an edit would change a document that is not on screen,
         // so text input is dropped rather than applied.
         let in_diff = self.diff.is_some();
         if in_diff && self.handle_diff_key(&key) {
+            return;
+        }
+
+        // `Ctrl+K` arms the safe layer — unless the user has bound it, because
+        // a rebinding is a deliberate choice and this is a convenience.
+        let chord = KeyChord::from_event(&key);
+        if chord == safelayer::prefix() && self.keymap.lookup(&chord).is_none() {
+            self.safe_prefix = Some(Instant::now());
+            self.info("Ctrl+K: one more key");
             return;
         }
 
@@ -591,6 +627,48 @@ impl App {
         }
     }
 
+    /// True while `Ctrl+K` is waiting for the key that names a command.
+    pub fn safe_prefix_armed(&self) -> bool {
+        self.safe_prefix.is_some()
+    }
+
+    fn safe_prefix_expired(&self) -> bool {
+        self.safe_prefix
+            .is_some_and(|at| at.elapsed() >= safelayer::TIMEOUT)
+    }
+
+    /// Drop the prefix if it has waited too long.
+    ///
+    /// Called from the event loop as well as from `handle_key`: the bar draws
+    /// the layer while it is armed, so it has to stop drawing it when the
+    /// prefix lapses — which can happen with no key pressed at all.
+    pub fn expire_safe_prefix(&mut self, now: Instant) {
+        if let Some(at) = self.safe_prefix {
+            if now.duration_since(at) >= safelayer::TIMEOUT {
+                self.safe_prefix = None;
+            }
+        }
+    }
+
+    /// The key pressed after `Ctrl+K`.
+    fn handle_safe_key(&mut self, key: KeyEvent) {
+        self.safe_prefix = None;
+        if key.code == KeyCode::Esc {
+            // Esc is the answer "no", and it stops there: cancelling the
+            // prefix must not also cancel a selection the user wanted kept.
+            self.info("Ctrl+K cancelled");
+            return;
+        }
+        if let Some(cmd) = safelayer::resolve(&key) {
+            self.execute(cmd);
+            return;
+        }
+        // A key the layer does not know is a slip, not an error. It goes on to
+        // do what it would have done, so a mistyped `Ctrl+K` costs one
+        // keystroke rather than two.
+        self.handle_key(key);
+    }
+
     fn handle_mouse(&mut self, mouse: crossterm::event::MouseEvent) {
         use crossterm::event::{MouseButton, MouseEventKind};
         if !self.config.ui.mouse || self.ui.overlay.captures_input() {
@@ -606,6 +684,10 @@ impl App {
             self.hover_hint(mouse.column, mouse.row);
             return;
         }
+        // A press or a wheel is a decision about something else, so whatever
+        // `Ctrl+K` was half-armed for is abandoned: a prefix that outlived a
+        // click would eat the key that followed it.
+        self.safe_prefix = None;
         if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left))
             && self.click_hint(mouse.column, mouse.row)
         {

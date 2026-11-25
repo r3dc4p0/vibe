@@ -435,7 +435,8 @@ pub fn report(map: &Keymap, hosts: &[Host], enhanced: bool) -> Vec<String> {
         }
         out.push(String::new());
         out.push("    Turn on [terminal] keyboard_enhancement if your terminal".to_string());
-        out.push("    speaks the extended protocol, or rebind these to Alt or F-keys.".to_string());
+        out.push("    speaks the extended protocol, or press Ctrl+K and the same key:".to_string());
+        out.push("    the modifiers go and the key stays (Ctrl+K F for Ctrl+Shift+F).".to_string());
     }
 
     out

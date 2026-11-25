@@ -91,6 +91,14 @@ command you ran, however you ran it, and `F4` or a click on it runs it again.
 That is what makes a palette-only command usable twice: without it, the second
 run costs a second trip through the menu.
 
+**When the terminal keeps the key** — a terminal, a multiplexer or the window
+manager handles some chords before Vibe is asked, and a key that never arrives
+leaves nothing to observe, so this cannot be detected. `Ctrl+K` is the way
+round it: a plain control byte every terminal delivers, then the key you meant
+with the modifiers dropped — `Ctrl+K f` for `Alt+F`, `Ctrl+K F` for
+`Ctrl+Shift+F`. The bar lists the layer while it waits, `F1` lists all of it,
+and `F2` still says which bindings this host takes and what actually arrived.
+
 ## Install
 
 ```sh
@@ -128,7 +136,7 @@ vibe --key-report       # explain which shortcuts this terminal takes or merges
 
 Every binding is a command with a stable id, remappable in `config.toml` and
 reachable from the palette even when unbound. **[docs/commands.md](docs/commands.md)
-lists all 70** with their ids and default keys; `vibe --list-keys` prints the
+lists all 71** with their ids and default keys; `vibe --list-keys` prints the
 same for your own configuration.
 
 The essentials:
@@ -149,13 +157,15 @@ The essentials:
 | `F4` | Run the last command again |
 | `Ctrl+Shift+B` | Bookmark panel |
 | `F1` / `F2` | Help / Which keys reach Vibe |
+| `Ctrl+K` then a key | The same command without the modifiers |
 
 Terminals are not all the same: many deliver `Ctrl+C` as `SIGINT` before the
 application sees it, and `Ctrl+Shift+X` / `Ctrl+Tab` need the Kitty keyboard
 protocol. Vibe enables the protocol where it can and falls back to unambiguous
 alternatives otherwise. When a shortcut does nothing, `F2` says why — it names
 the host, the chords that host takes, the ones the wire merges, and echoes each
-key as it arrives. See [docs/keybindings.md](docs/keybindings.md).
+key as it arrives — and `Ctrl+K` followed by the same key reaches the command
+anyway. See [docs/keybindings.md](docs/keybindings.md).
 
 ## Configuration
 

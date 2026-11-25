@@ -720,5 +720,18 @@ pub fn help_lines(app: &App) -> Vec<String> {
     out.push("    Tab                    Switch to the replace field".to_string());
     out.push("    Ctrl+Enter             Replace current (replace mode)".to_string());
     out.push("    Alt+Enter              Replace all (replace mode)".to_string());
+    out.push(String::new());
+    out.push("  When a key does nothing".to_string());
+    out.push("    A terminal or a multiplexer may keep the key for itself. Ctrl+K,".to_string());
+    out.push("    then the key you meant: the modifiers go, the key stays.".to_string());
+    out.push("    F2 shows what this terminal actually sends.".to_string());
+    for entry in crate::safelayer::LAYER {
+        out.push(format!(
+            "    Ctrl+K {:<8} {:<13} {}",
+            entry.key_label(),
+            entry.mirrors_label(),
+            entry.command.title()
+        ));
+    }
     out
 }

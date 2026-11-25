@@ -44,6 +44,7 @@ pub mod keyreport;
 pub mod logging;
 pub mod platform;
 pub mod recovery;
+pub mod safelayer;
 pub mod search;
 pub mod syntax;
 pub mod terminal;

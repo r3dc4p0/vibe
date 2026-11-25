@@ -42,6 +42,11 @@ Ordered by what a user notices first, not by what is easiest.
   ran last — a shortcut, a click or a palette choice — and `F4` runs it again;
   the slot steps aside while an overlay is up, and the hints keep the row when
   the bar is too narrow for both
+- Terminal-proof keys: a `Ctrl+K` prefix reaches every command whose own chord a
+  terminal or multiplexer may keep — the modifiers are dropped and the key is
+  kept, so `Alt+F` becomes `Ctrl+K f` and `Ctrl+Shift+F` becomes `Ctrl+K F`; the
+  bar lists the layer while it waits, the help screen lists all of it, and the
+  prefix lapses after a second and a half
 - Unit, integration, UI and property tests; Criterion benchmarks
 
 ## Next

@@ -24,6 +24,7 @@ use ratatui::text::Line;
 use crate::app::App;
 use crate::commands::Command;
 use crate::config::UiStyle;
+use crate::safelayer;
 use crate::theme::Theme;
 use crate::ui::Level;
 use crate::VERSION;
@@ -595,6 +596,25 @@ const HINT_SEPARATOR: &str = "   ·   ";
 /// Columns kept clear between the last hint and the repeat slot.
 const SLOT_GAP: usize = 3;
 
+/// The safe layer, as the bar shows it: the prefix, then one hint per entry.
+///
+/// The first hint names the prefix and is not a button — the prefix is already
+/// pressed and spent — so it has no command. The rest are clickable, like every
+/// other hint.
+fn safe_layer_hints() -> Vec<Hint> {
+    let mut hints = vec![Hint {
+        key: "Ctrl+K".to_string(),
+        label: "…".to_string(),
+        command: None,
+    }];
+    hints.extend(safelayer::LAYER.iter().map(|entry| Hint {
+        key: entry.key_label(),
+        label: entry.label.to_string(),
+        command: Some(entry.command),
+    }));
+    hints
+}
+
 /// The hints for the current mode.
 fn hint_list(app: &App) -> Vec<Hint> {
     let km = &app.keymap;
@@ -698,12 +718,24 @@ pub fn draw_hints(buf: &mut Buffer, area: Rect, app: &mut App) {
         Style::default().bg(theme.hint_bg).fg(theme.hint_fg),
     );
 
-    let hints = hint_list(app);
+    // While the safe layer is armed the bar is its menu and nothing else: for
+    // that second, the row's job is to say which key names which command.
+    let armed = app.safe_prefix_armed();
+    let hints = if armed {
+        safe_layer_hints()
+    } else {
+        hint_list(app)
+    };
     let hovered = app.ui.hovered_hint;
 
     // The slot is measured before the hints are laid out: the bar is one row,
-    // and the two have to share it without either running into the other.
-    let slot = repeat_hint(app).and_then(|hint| fit_slot(hint, area.width as usize));
+    // and the two have to share it without either running into the other. The
+    // layer takes the whole row, so the slot stands down while it is armed.
+    let slot = if armed {
+        None
+    } else {
+        repeat_hint(app).and_then(|hint| fit_slot(hint, area.width as usize))
+    };
     let reserve = slot.as_ref().map_or(0, |h| hint_width(h) + SLOT_GAP);
 
     let right = area.x + area.width;
