@@ -390,16 +390,21 @@ around this where it can and tells you where it cannot.
    shifted binding is unreachable — the unshifted one runs instead, silently.
    `Ctrl+Shift+S` saving instead of saving as is the common symptom; `F2` lists
    every binding this happens to.
-3. **`Ctrl+Tab` may be swallowed** by the terminal or the window manager. It is
+3. **A few control chords are another key's byte.** `Ctrl+H` is `0x08`, which is
+   Backspace; `Ctrl+/` is `0x1F`, which is `Ctrl+_`; `Ctrl+I`, `Ctrl+M` and
+   `Ctrl+J` are Tab, Enter and a line feed. Without the extended protocol these
+   cannot be told apart, so `Ctrl+H` deletes a character instead of opening
+   replace. `Ctrl+K` `h` and `Ctrl+K` `/` are the way round them.
+4. **`Ctrl+Tab` may be swallowed** by the terminal or the window manager. It is
    bound, but `Ctrl+PageDown`/`Ctrl+PageUp` are not always available either, so
    `Ctrl+Tab` also works from the command palette (`buffer.next`).
-4. **Flow control.** `Ctrl+S` is `XOFF` on terminals with software flow control
+5. **Flow control.** `Ctrl+S` is `XOFF` on terminals with software flow control
    enabled. Vibe puts the terminal in raw mode, which disables it, but a terminal
    multiplexer may still intercept it. If `Ctrl+S` does nothing, run
    `stty -ixon` or use the command palette.
-5. **`Shift+Tab`** is sent as `BackTab` by some terminals and as `Tab`+`Shift` by
+6. **`Shift+Tab`** is sent as `BackTab` by some terminals and as `Tab`+`Shift` by
    others; both are handled.
-6. **`Ctrl+Shift+Up`/`Ctrl+Shift+Down`** add a cursor above or below, and holding
+7. **`Ctrl+Shift+Up`/`Ctrl+Shift+Down`** add a cursor above or below, and holding
    the key keeps adding — one cursor per key repeat. **`Ctrl+Alt+Up`/`Ctrl+Alt+Down`**
    do the same, but need a terminal that reports the Alt modifier with arrow
    keys: without the enhanced protocol some terminals send a plain arrow, which
@@ -466,7 +471,11 @@ command by the key it already had: the modifiers are dropped, the key is kept.
 | `Alt+Up` / `Alt+Down` | `Ctrl+K` `Up` / `Down` | Move Line Up / Down |
 | `Ctrl+Shift+P` | `Ctrl+K` `P` | Command Palette |
 | `Ctrl+Shift+S` | `Ctrl+K` `S` | Save As |
+| `Ctrl+Shift+Z` | `Ctrl+K` `Z` | Redo |
+| `Ctrl+H` | `Ctrl+K` `h` | Find and Replace |
+| `Ctrl+/` | `Ctrl+K` `/` | Toggle Comment |
 | `Ctrl+Shift+Up` | `Ctrl+K` `Shift+Up` | Add Cursor Above |
+| `Ctrl+Tab` | `Ctrl+K` `Tab` | Next Buffer |
 
 The shift is a tie-breaker rather than a requirement. Two commands claim `f`, so
 `Ctrl+K f` folds and `Ctrl+K F` folds everything; only one claims `e`, so either

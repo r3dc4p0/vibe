@@ -727,7 +727,7 @@ pub fn help_lines(app: &App) -> Vec<String> {
     out.push("    F2 shows what this terminal actually sends.".to_string());
     for entry in crate::safelayer::LAYER {
         out.push(format!(
-            "    Ctrl+K {:<8} {:<13} {}",
+            "    Ctrl+K {:<9} {:<14} {}",
             entry.key_label(),
             entry.mirrors_label(),
             entry.command.title()

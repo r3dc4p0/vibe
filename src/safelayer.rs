@@ -78,6 +78,8 @@ impl Safe {
             KeyCode::Down => "↓".to_string(),
             KeyCode::Left => "←".to_string(),
             KeyCode::Right => "→".to_string(),
+            KeyCode::Tab if self.shift => "Shift+Tab".to_string(),
+            KeyCode::Tab => "Tab".to_string(),
             _ => "?".to_string(),
         }
     }
@@ -122,6 +124,27 @@ pub const LAYER: &[Safe] = &[
         command: Command::CommandPalette,
         mirrors: "ctrl+shift+p",
         label: "commands",
+    },
+    Safe {
+        code: KeyCode::Char('z'),
+        shift: true,
+        command: Command::Redo,
+        mirrors: "ctrl+shift+z",
+        label: "redo",
+    },
+    Safe {
+        code: KeyCode::Char('/'),
+        shift: false,
+        command: Command::ToggleComment,
+        mirrors: "ctrl+/",
+        label: "comment",
+    },
+    Safe {
+        code: KeyCode::Char('h'),
+        shift: false,
+        command: Command::Replace,
+        mirrors: "ctrl+h",
+        label: "replace",
     },
     Safe {
         code: KeyCode::Char('w'),
@@ -284,6 +307,22 @@ pub const LAYER: &[Safe] = &[
         mirrors: "ctrl+alt+right",
         label: "pane right",
     },
+    // Not merged by the wire — `Ctrl+Tab` is not a byte — but a terminal or a
+    // window manager may take it, and the bar is the only other way through.
+    Safe {
+        code: KeyCode::Tab,
+        shift: false,
+        command: Command::NextBuffer,
+        mirrors: "ctrl+tab",
+        label: "next buf",
+    },
+    Safe {
+        code: KeyCode::Tab,
+        shift: true,
+        command: Command::PrevBuffer,
+        mirrors: "ctrl+shift+tab",
+        label: "prev buf",
+    },
 ];
 
 /// The chord that arms the layer.
@@ -362,6 +401,31 @@ mod tests {
             vec![Command::ClosePane],
             "Close Pane is the one Alt binding without a slot: `w` is word wrap's"
         );
+    }
+
+    #[test]
+    fn every_binding_the_wire_merges_has_a_safe_key() {
+        // The invariant behind "every binding a terminal can take or merge has
+        // a slot": derived from the keymap and the same byte model `F2` uses,
+        // so a new `Ctrl+Shift+X` binding cannot quietly ship without one.
+        use crate::keyreport::{arrives_as, legacy_byte};
+        let map = Keymap::defaults();
+        for (chord, command) in map.all() {
+            let Some(byte) = legacy_byte(&chord) else {
+                continue;
+            };
+            let arrives = arrives_as(byte);
+            if arrives == chord {
+                continue;
+            }
+            assert!(
+                LAYER.iter().any(|s| s.command == command),
+                "{} ({}) merges into {} and has no safe key",
+                command.title(),
+                chord.label(),
+                arrives.label()
+            );
+        }
     }
 
     #[test]

@@ -83,6 +83,36 @@ fn the_layer_opens_the_palette_without_the_shift_chord() {
 }
 
 #[test]
+fn redo_reaches_through_the_layer_where_its_shifted_chord_undoes() {
+    let scratch = Scratch::new();
+    let mut app = editor_for(&scratch);
+    type_str(&mut app, "a");
+    ctrl(&mut app, 'z');
+    assert_eq!(text(&app), "", "the typing is undone");
+
+    // `Ctrl+Shift+Z` is 0x1A on a legacy wire -- the same byte as `Ctrl+Z`,
+    // which would undo a second time. `Ctrl+K Z` cannot be mistaken.
+    safe(&mut app, KeyCode::Char('Z'), KeyModifiers::SHIFT);
+
+    assert_eq!(text(&app), "a");
+}
+
+#[test]
+fn replace_reaches_through_the_layer_where_ctrl_h_is_backspace() {
+    let scratch = Scratch::new();
+    let mut app = editor_for(&scratch);
+    type_str(&mut app, "ab");
+
+    safe(&mut app, KeyCode::Char('h'), KeyModifiers::NONE);
+
+    assert!(
+        matches!(app.ui.overlay.kind(), OverlayKind::Replace),
+        "Ctrl+H is 0x08 on the wire, which is Backspace"
+    );
+    assert_eq!(text(&app), "ab", "nothing was deleted on the way");
+}
+
+#[test]
 fn a_key_the_layer_does_not_know_does_its_own_job() {
     let scratch = Scratch::new();
     let mut app = editor_for(&scratch);
